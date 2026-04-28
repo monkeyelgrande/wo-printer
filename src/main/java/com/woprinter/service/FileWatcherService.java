@@ -1,7 +1,6 @@
 package com.woprinter.service;
 
 import com.woprinter.config.AppConfig;
-import com.woprinter.model.ConfiguracionEmpresa;
 import com.woprinter.model.Factura;
 import com.woprinter.model.Impresora;
 import com.woprinter.model.OrdenPorBodega;
@@ -209,9 +208,8 @@ public class FileWatcherService implements Runnable {
      *      - Clasificación de ítems + novedades
      *      - INSERT facturas_cabeceras/detalles + UPDATE pendientes + movimientos (AUTOMATICO)
      *      - Todo transaccional
-     *   3. Despacha 3 tipos de tirillas:
+     *   3. Despacha 2 tipos de tirillas:
      *      - ORDEN por bodega -> impresora con id_bodega = X
-     *      - VENTA -> impresoras con tipo_venta = TRUE
      *      - NOVEDADES (si aplica) -> impresoras con tipo_notificaciones = TRUE
      *   4. Mueve el archivo a procesados o errores
      */
@@ -261,7 +259,6 @@ public class FileWatcherService implements Runnable {
 
             boolean todasOk = true;
             todasOk &= imprimirOrdenes(factura, resultado, impresoras, nombreArchivo);
-            todasOk &= imprimirVenta(factura, impresoras, nombreArchivo);
             if (resultado.hayNovedades()) {
                 todasOk &= imprimirNovedades(factura, resultado, impresoras, nombreArchivo);
             }
@@ -314,21 +311,6 @@ public class FileWatcherService implements Runnable {
                 System.err.println("[WATCHER] Error imprimiendo orden bodega " + orden.getIdBodega() + ": " + e.getMessage());
             }
             notifyImpresionEnviada(job);
-        }
-        return ok;
-    }
-
-    private boolean imprimirVenta(Factura factura, List<Impresora> impresoras, String nombreArchivo) {
-        boolean ok = true;
-        ConfiguracionEmpresa emp = dbService.getConfiguracionEmpresa();
-        byte[] data = null;
-        for (Impresora imp : impresoras) {
-            if (!imp.isTipoVenta()) continue;
-            if (data == null) {
-                try { data = ticketGen.generarTirillaVenta(factura, emp); }
-                catch (IOException e) { return false; }
-            }
-            ok &= despachar(imp, data, factura, "VENTA", nombreArchivo);
         }
         return ok;
     }

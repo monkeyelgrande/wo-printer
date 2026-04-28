@@ -152,7 +152,6 @@ public class OrdenGeneratorService {
                 agrupados.put(key, copia);
             } else {
                 existente.setCantidad(existente.getCantidad() + item.getCantidad());
-                existente.setTotalLinea(existente.getTotalLinea() + item.getTotalLinea());
             }
         }
         return new ArrayList<ItemFactura>(agrupados.values());
@@ -165,9 +164,6 @@ public class OrdenGeneratorService {
         c.setBodega(src.getBodega());
         c.setMedida(src.getMedida());
         c.setCantidad(src.getCantidad());
-        c.setIva(src.getIva());
-        c.setPrecioUnitario(src.getPrecioUnitario());
-        c.setTotalLinea(src.getTotalLinea());
         return c;
     }
 
@@ -438,9 +434,11 @@ public class OrdenGeneratorService {
                 ps.setString(2, item.getCodigo());
                 ps.setString(3, item.getDescripcion());
                 ps.setDouble(4, item.getCantidad());
-                ps.setDouble(5, item.getIva());
-                ps.setDouble(6, item.getPrecioUnitario());
-                ps.setDouble(7, item.getTotalLinea());
+                // wo-printer ya no consume las columnas X+ del Excel; iva/precio/total
+                // quedan en 0 para preservar el contrato NOT NULL de la tabla legada.
+                ps.setDouble(5, 0.0);
+                ps.setDouble(6, 0.0);
+                ps.setDouble(7, 0.0);
                 ps.setBoolean(8, nov != null);
                 ps.setString(9, nov != null ? (nov.getTipo().name() + ": " + nov.getMotivo()) : null);
                 ps.addBatch();

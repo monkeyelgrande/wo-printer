@@ -1,7 +1,6 @@
 package com.woprinter.service;
 
 import com.woprinter.config.AppConfig;
-import com.woprinter.model.ConfiguracionEmpresa;
 import com.woprinter.model.Factura;
 import com.woprinter.model.ItemFactura;
 import com.woprinter.model.Novedad;
@@ -33,19 +32,15 @@ public class TicketGeneratorService {
 
     private static final int COL_CODIGO = 10;
     private static final int COL_CANT = 8;
-    private static final int COL_CANT_VENTA = 6;
-    private static final int COL_TOTAL_VENTA = 12;
 
     private final int charWidth;
     private final DecimalFormat dfQty;
-    private final DecimalFormat dfMoney;
     private final SimpleDateFormat sdfDate;
     private final SimpleDateFormat sdfImpresion;
 
     public TicketGeneratorService() {
         this.charWidth = AppConfig.getInstance().getPrinterCharWidth();
         this.dfQty = new DecimalFormat("#,##0.##");
-        this.dfMoney = new DecimalFormat("#,##0");
         this.sdfDate = new SimpleDateFormat("dd/MM/yyyy");
         this.sdfImpresion = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
     }
@@ -117,99 +112,6 @@ public class TicketGeneratorService {
         writeLine(out, "");
         out.write(ESC_CENTER);
         writeLine(out, "** ORDEN DE DESPACHO **");
-        writeLine(out, "");
-        out.write(ESC_FEED_3);
-        out.write(ESC_PARTIAL_CUT);
-
-        return out.toByteArray();
-    }
-
-    // ================================================================
-    // TIRILLA VENTA (con precios - Factura de Venta)
-    // ================================================================
-
-    public byte[] generarTirillaVenta(Factura factura, ConfiguracionEmpresa empresa) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        out.write(ESC_INIT);
-
-        // Encabezado con datos de la empresa desde tabla configuraciones
-        out.write(ESC_CENTER);
-        out.write(ESC_BOLD_ON);
-        out.write(ESC_DOUBLE_H);
-        writeLine(out, empresa.getNombre() != null ? empresa.getNombre() : "");
-        out.write(ESC_NORMAL);
-        out.write(ESC_BOLD_OFF);
-
-        out.write(ESC_CENTER);
-        if (empresa.getNit() != null && !empresa.getNit().isEmpty()) {
-            writeLine(out, "NIT: " + empresa.getNit());
-        }
-        if (empresa.getDireccion() != null && !empresa.getDireccion().isEmpty()) {
-            writeLine(out, empresa.getDireccion());
-        }
-        if (empresa.getContacto() != null && !empresa.getContacto().isEmpty()) {
-            writeLine(out, "Tel: " + empresa.getContacto());
-        }
-        writeLine(out, "");
-
-        // Titulo
-        out.write(ESC_CENTER);
-        out.write(ESC_BOLD_ON);
-        out.write(ESC_DOUBLE_H);
-        writeLine(out, "FACTURA DE VENTA");
-        out.write(ESC_NORMAL);
-        out.write(ESC_BOLD_OFF);
-        writeLine(out, "");
-
-        // Datos factura
-        out.write(ESC_LEFT);
-        writeLine(out, separador());
-        out.write(ESC_BOLD_ON);
-        out.write(ESC_DOUBLE_H);
-        writeLine(out, "Concepto: " + (factura.getConcepto() != null ? factura.getConcepto() : ""));
-        out.write(ESC_NORMAL);
-        out.write(ESC_BOLD_OFF);
-        writeLine(out, "Factura:  " + factura.getNumeroCompleto());
-        if (factura.getFecha() != null) {
-            writeLine(out, "Fecha:    " + sdfDate.format(factura.getFecha()));
-        }
-        writeLine(out, "Impreso:  " + sdfImpresion.format(new Date()));
-        writeLine(out, "Vendedor: " + crop(factura.getVendedor(), charWidth - 10));
-        writeLine(out, "F.Pago:   " + (factura.getFormaPago() != null ? factura.getFormaPago() : ""));
-
-        // Cliente grande
-        writeClienteGrande(out, factura);
-
-        // Header items venta: CODIGO + DESC + CANT + TOTAL
-        out.write(ESC_BOLD_ON);
-        int descWV = charWidth - COL_CODIGO - COL_CANT_VENTA - COL_TOTAL_VENTA;
-        writeLine(out, padRight("CODIGO", COL_CODIGO) + padRight("DESCRIPCION", descWV)
-                     + padLeft("CANT", COL_CANT_VENTA) + padLeft("TOTAL", COL_TOTAL_VENTA));
-        out.write(ESC_BOLD_OFF);
-        writeLine(out, separador());
-
-        // Items con precio
-        for (ItemFactura item : factura.getItems()) {
-            writeItemVenta(out, item);
-        }
-
-        // Totales dinero
-        writeLine(out, separador());
-        out.write(ESC_BOLD_ON);
-        writeLine(out, padBetween("Subtotal:", "$" + dfMoney.format(factura.getSubtotal()), charWidth));
-        writeLine(out, padBetween("IVA:", "$" + dfMoney.format(factura.getTotalIva()), charWidth));
-        writeLine(out, separador());
-        out.write(ESC_DOUBLE_H);
-        writeLine(out, padBetween("TOTAL:", "$" + dfMoney.format(factura.getTotal()), charWidth));
-        out.write(ESC_NORMAL);
-        out.write(ESC_BOLD_OFF);
-
-        // Pie
-        writeLine(out, separador());
-        out.write(ESC_CENTER);
-        writeLine(out, "Items: " + factura.getItems().size());
-        writeLine(out, "");
-        writeLine(out, "** FACTURA DE VENTA **");
         writeLine(out, "");
         out.write(ESC_FEED_3);
         out.write(ESC_PARTIAL_CUT);
@@ -412,28 +314,6 @@ public class TicketGeneratorService {
         out.write(ESC_BOLD_ON);
         writeLine(out, padLeft(cantStr, COL_CANT));
         out.write(ESC_BOLD_OFF);
-
-        for (int i = 1; i < descLines.length; i++) {
-            writeLine(out, padRight("", COL_CODIGO) + descLines[i]);
-        }
-        out.write(LINE_FEED);
-    }
-
-    private void writeItemVenta(ByteArrayOutputStream out, ItemFactura item) throws IOException {
-        String codigoStr = item.getCodigo() != null ? item.getCodigo() : "";
-        String cantStr = dfQty.format(item.getCantidad());
-        String totalStr = "$" + dfMoney.format(item.getTotalLinea());
-        int descWV = charWidth - COL_CODIGO - COL_CANT_VENTA - COL_TOTAL_VENTA;
-
-        String descFull = item.getDescripcion() != null ? item.getDescripcion() : "";
-        String[] descLines = wrap(descFull, descWV);
-
-        String lineStart = padRight(codigoStr, COL_CODIGO) + padRight(descLines[0], descWV);
-        writeRaw(out, lineStart);
-        out.write(ESC_BOLD_ON);
-        writeRaw(out, padLeft(cantStr, COL_CANT_VENTA));
-        out.write(ESC_BOLD_OFF);
-        writeLine(out, padLeft(totalStr, COL_TOTAL_VENTA));
 
         for (int i = 1; i < descLines.length; i++) {
             writeLine(out, padRight("", COL_CODIGO) + descLines[i]);

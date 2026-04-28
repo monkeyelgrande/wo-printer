@@ -25,38 +25,6 @@ public class Factura {
         this.items = new ArrayList<ItemFactura>();
     }
 
-    // --- Calculados ---
-
-    /**
-     * Subtotal: suma de (precioUnitario * cantidad) de cada item.
-     * Este es el valor sin IVA.
-     */
-    public double getSubtotal() {
-        double total = 0;
-        for (ItemFactura item : items) {
-            total += item.getPrecioUnitario() * item.getCantidad();
-        }
-        return total;
-    }
-
-    /**
-     * Total IVA: suma de (precioUnitario * cantidad * iva) de cada item.
-     */
-    public double getTotalIva() {
-        double total = 0;
-        for (ItemFactura item : items) {
-            total += item.getPrecioUnitario() * item.getCantidad() * item.getIva();
-        }
-        return total;
-    }
-
-    /**
-     * Total general: subtotal + IVA.
-     */
-    public double getTotal() {
-        return getSubtotal() + getTotalIva();
-    }
-
     public String getNumeroCompleto() {
         return prefijo + "-" + numero;
     }

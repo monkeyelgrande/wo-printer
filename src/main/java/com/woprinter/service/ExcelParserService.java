@@ -14,19 +14,13 @@ public class ExcelParserService {
 
     /**
      * Parsea un archivo Excel exportado por WorldOffice y devuelve un objeto Factura.
-     * 
-     * Detecta automaticamente el formato:
-     * 
-     * FORMATO CON IVA (34 columnas):
-     *   X(24)=Iva, Y(25)=Monto_Monetario_U, Z(26)=ImpoConsumo,
-     *   AA(27)=PorcImpoConsumo, AB(28)=Total
-     * 
-     * FORMATO SIN IVA (30 columnas):
-     *   X(24)=Monto_Monetario_U, Y(25)=ImpoConsumo,
-     *   Z(26)=PorcImpoConsumo, AA(27)=Total
-     *   (No tiene columna Iva)
-     * 
-     * Columnas comunes (A-W):
+     *
+     * Solo se leen las columnas A..W, que son comunes a todas las plantillas que
+     * maneja el negocio. Cualquier columna desde X en adelante (Iva, totales,
+     * descuentos, centros de costo, lote, etc.) se ignora porque varia entre
+     * configuraciones y no se utiliza para generar las ordenes de despacho.
+     *
+     * Columnas leidas:
      *   A=Documento, B=Prefijo, C=DocumentoNumero, D=Fecha, E=Empresa,
      *   F=Vendedor, G=Cliente, I=Direccion, K=Concepto, M=Telefono,
      *   N=Ciudad, O=Forma_Pago, T=Inventario(codigo+desc), U=Bodega,
@@ -41,40 +35,12 @@ public class ExcelParserService {
         try {
             Sheet sheet = workbook.getSheetAt(0);
 
-            // Detectar formato por el header de la columna X (indice 23)
-            Row headerRow = sheet.getRow(0);
-            boolean tieneIva = false;
-            if (headerRow != null) {
-                String headerX = getStringValue(headerRow.getCell(23));
-                tieneIva = "Iva".equalsIgnoreCase(headerX.trim());
-            }
-
-            System.out.println("[PARSER] Formato detectado: " + (tieneIva ? "CON IVA (34 cols)" : "SIN IVA (30 cols)"));
-
-            // Indices de columnas segun formato
-            int colIva;              // Solo existe en formato CON IVA
-            int colPrecioUnitario;   // Monto_Monetario_U
-            int colTotal;            // Total
-
-            if (tieneIva) {
-                // Formato CON IVA: X=Iva, Y=PrecioU, AB=Total
-                colIva = 23;             // X
-                colPrecioUnitario = 24;  // Y
-                colTotal = 27;           // AB
-            } else {
-                // Formato SIN IVA: X=PrecioU, AA=Total (no hay columna Iva)
-                colIva = -1;             // No existe
-                colPrecioUnitario = 23;  // X
-                colTotal = 26;           // AA
-            }
-
             boolean headerLeido = false;
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
 
-                // Leer encabezado de factura solo de la primera fila de datos
                 if (!headerLeido) {
                     factura.setTipoDocumento(getStringValue(row.getCell(0)));   // A
                     factura.setPrefijo(getStringValue(row.getCell(1)));         // B
@@ -113,19 +79,6 @@ public class ExcelParserService {
                 item.setBodega(getStringValue(row.getCell(20)));              // U
                 item.setMedida(getStringValue(row.getCell(21)));              // V
                 item.setCantidad(getDoubleValue(row.getCell(22)));            // W
-
-                // IVA: solo existe en formato CON IVA
-                if (colIva >= 0) {
-                    item.setIva(getDoubleValue(row.getCell(colIva)));
-                } else {
-                    item.setIva(0.0);
-                }
-
-                // Precio unitario (sin IVA)
-                item.setPrecioUnitario(getDoubleValue(row.getCell(colPrecioUnitario)));
-
-                // Total de la linea (con IVA incluido si aplica)
-                item.setTotalLinea(getDoubleValue(row.getCell(colTotal)));
 
                 factura.addItem(item);
             }

@@ -7,9 +7,6 @@ public class ItemFactura {
     private String bodega;
     private String medida;          // Unidad, Metros, Kilogramo
     private double cantidad;
-    private double iva;             // 0.19
-    private double precioUnitario;  // sin IVA
-    private double totalLinea;      // con IVA
 
     public ItemFactura() {}
 
@@ -30,17 +27,8 @@ public class ItemFactura {
     public double getCantidad() { return cantidad; }
     public void setCantidad(double cantidad) { this.cantidad = cantidad; }
 
-    public double getIva() { return iva; }
-    public void setIva(double iva) { this.iva = iva; }
-
-    public double getPrecioUnitario() { return precioUnitario; }
-    public void setPrecioUnitario(double precioUnitario) { this.precioUnitario = precioUnitario; }
-
-    public double getTotalLinea() { return totalLinea; }
-    public void setTotalLinea(double totalLinea) { this.totalLinea = totalLinea; }
-
     @Override
     public String toString() {
-        return codigo + " " + descripcion + " x" + cantidad + " $" + totalLinea;
+        return codigo + " " + descripcion + " x" + cantidad;
     }
 }

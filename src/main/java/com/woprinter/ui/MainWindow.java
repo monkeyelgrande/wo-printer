@@ -41,7 +41,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
     private JTextField txtNombre;
     private JComboBox<String> cmbImpresorasWindows;
     private JComboBox<BodegaItem> cmbBodega;
-    private JCheckBox chkTipoVenta;
     private JCheckBox chkTipoNotificaciones;
 
     // Panel Facturas
@@ -216,8 +215,8 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         JPanel panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // Tabla: ID, Nombre, Windows, Bodega, Venta, Notif, Activa
-        String[] headers = {"ID", "Nombre", "Impresora Windows", "Bodega", "Venta", "Notif.", "Activa"};
+        // Tabla: ID, Nombre, Windows, Bodega, Notif, Activa
+        String[] headers = {"ID", "Nombre", "Impresora Windows", "Bodega", "Notif.", "Activa"};
         impTableModel = new DefaultTableModel(headers, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
@@ -232,9 +231,8 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         tablaImpresoras.getColumnModel().getColumn(1).setPreferredWidth(140);
         tablaImpresoras.getColumnModel().getColumn(2).setPreferredWidth(150);
         tablaImpresoras.getColumnModel().getColumn(3).setPreferredWidth(140);
-        tablaImpresoras.getColumnModel().getColumn(4).setPreferredWidth(50);
-        tablaImpresoras.getColumnModel().getColumn(5).setPreferredWidth(60);
-        tablaImpresoras.getColumnModel().getColumn(6).setPreferredWidth(50);
+        tablaImpresoras.getColumnModel().getColumn(4).setPreferredWidth(60);
+        tablaImpresoras.getColumnModel().getColumn(5).setPreferredWidth(50);
 
         panel.add(new JScrollPane(tablaImpresoras), BorderLayout.CENTER);
 
@@ -276,9 +274,7 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
 
         gbc.gridx = 2; gbc.gridwidth = 3; gbc.weightx = 1;
         JPanel tipoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        chkTipoVenta = new JCheckBox("Venta (con precios)", false);
         chkTipoNotificaciones = new JCheckBox("Notificaciones", false);
-        tipoPanel.add(chkTipoVenta);
         tipoPanel.add(chkTipoNotificaciones);
         formPanel.add(tipoPanel, gbc);
         gbc.gridwidth = 1;
@@ -359,7 +355,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
                     int id = Integer.parseInt((String) impTableModel.getValueAt(row, 0));
                     for (Impresora imp : todas) {
                         if (imp.getId() == id) {
-                            chkTipoVenta.setSelected(imp.isTipoVenta());
                             chkTipoNotificaciones.setSelected(imp.isTipoNotificaciones());
                             seleccionarBodegaEnCombo(imp.getIdBodega());
                             break;
@@ -531,7 +526,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
                     imp.getNombre(),
                     imp.getNombreWindows(),
                     bodegaTxt,
-                    imp.isTipoVenta(),
                     imp.isTipoNotificaciones(),
                     imp.isActiva()
             });
@@ -576,16 +570,15 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
             return;
         }
         Integer idBodega = getIdBodegaSeleccionado();
-        boolean tipoVenta = chkTipoVenta.isSelected();
         boolean tipoNotif = chkTipoNotificaciones.isSelected();
-        if (idBodega == null && !tipoVenta && !tipoNotif) {
+        if (idBodega == null && !tipoNotif) {
             JOptionPane.showMessageDialog(this,
-                    "Asigne al menos una función: bodega, venta o notificaciones",
+                    "Asigne al menos una función: bodega o notificaciones",
                     "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        if (dbService.agregarImpresora(nombre, nombreWindows, tipoVenta, tipoNotif, idBodega)) {
+        if (dbService.agregarImpresora(nombre, nombreWindows, false, tipoNotif, idBodega)) {
             cargarImpresoras();
             limpiarFormImpresora();
             appendLog("Impresora agregada: " + nombre + " [" + nombreWindows + "]");
@@ -602,10 +595,10 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         int id = Integer.parseInt((String) impTableModel.getValueAt(row, 0));
         String nombre = txtNombre.getText().trim();
         String nombreWindows = (String) cmbImpresorasWindows.getSelectedItem();
-        boolean activa = (Boolean) impTableModel.getValueAt(row, 6);
+        boolean activa = (Boolean) impTableModel.getValueAt(row, 5);
 
         if (dbService.actualizarImpresora(id, nombre, nombreWindows, activa,
-                chkTipoVenta.isSelected(), chkTipoNotificaciones.isSelected(), getIdBodegaSeleccionado())) {
+                false, chkTipoNotificaciones.isSelected(), getIdBodegaSeleccionado())) {
             cargarImpresoras();
             appendLog("Impresora actualizada: " + nombre);
         }
@@ -643,14 +636,14 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
 
         int id = Integer.parseInt((String) impTableModel.getValueAt(row, 0));
         String nombre = (String) impTableModel.getValueAt(row, 1);
-        boolean activa = (Boolean) impTableModel.getValueAt(row, 6);
+        boolean activa = (Boolean) impTableModel.getValueAt(row, 5);
 
         // Obtener datos actuales de la impresora
         List<Impresora> todas = dbService.getAllImpresoras();
         for (Impresora imp : todas) {
             if (imp.getId() == id) {
                 if (dbService.actualizarImpresora(id, imp.getNombre(), imp.getNombreWindows(),
-                        !activa, imp.isTipoVenta(), imp.isTipoNotificaciones(), imp.getIdBodega())) {
+                        !activa, false, imp.isTipoNotificaciones(), imp.getIdBodega())) {
                     cargarImpresoras();
                     appendLog("Impresora " + nombre + " -> " + (!activa ? "ACTIVADA" : "DESACTIVADA"));
                 }
@@ -773,7 +766,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         if (cmbBodega.getItemCount() > 0) {
             cmbBodega.setSelectedIndex(0);
         }
-        chkTipoVenta.setSelected(false);
         chkTipoNotificaciones.setSelected(false);
     }
 
@@ -851,8 +843,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
                     com.woprinter.service.PrinterService printerSvc = new com.woprinter.service.PrinterService();
 
                     byte[] tirillaBodega = ticketGen.generarTirillaBodega(factura);
-                    com.woprinter.model.ConfiguracionEmpresa configEmpresa = dbService.getConfiguracionEmpresa();
-                    byte[] tirillaVenta = ticketGen.generarTirillaVenta(factura, configEmpresa);
 
                     List<Impresora> impresoras = dbService.getImpresorasActivas();
                     int enviados = 0;
@@ -866,15 +856,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
                             } catch (Exception e) {
                                 errores++;
                                 System.err.println("[REPRINT] Error bodega " + imp + ": " + e.getMessage());
-                            }
-                        }
-                        if (imp.isTipoVenta()) {
-                            try {
-                                printerSvc.imprimir(imp, tirillaVenta);
-                                enviados++;
-                            } catch (Exception e) {
-                                errores++;
-                                System.err.println("[REPRINT] Error venta " + imp + ": " + e.getMessage());
                             }
                         }
                     }

@@ -533,9 +533,9 @@ public class DatabaseService {
                     ps.setString(2, item.getCodigo());
                     ps.setString(3, item.getDescripcion());
                     ps.setDouble(4, item.getCantidad());
-                    ps.setDouble(5, item.getIva());
-                    ps.setDouble(6, item.getPrecioUnitario());
-                    ps.setDouble(7, item.getTotalLinea());
+                    ps.setDouble(5, 0.0);
+                    ps.setDouble(6, 0.0);
+                    ps.setDouble(7, 0.0);
                     ps.executeUpdate();
                     insertados++;
                 }
@@ -618,7 +618,7 @@ public class DatabaseService {
         }
 
         // Detalle
-        String sqlDet = "SELECT d.codigo_producto, d.descripcion, d.cantidad, d.iva, d.precio_unitario, d.total_linea "
+        String sqlDet = "SELECT d.codigo_producto, d.descripcion, d.cantidad "
                       + "FROM detalle_factura d "
                       + "JOIN facturas_impresas f ON d.factura_id = f.id "
                       + "WHERE f.numero_factura = ? ORDER BY d.id";
@@ -632,9 +632,6 @@ public class DatabaseService {
                 item.setCodigo(rs.getString("codigo_producto"));
                 item.setDescripcion(rs.getString("descripcion"));
                 item.setCantidad(rs.getDouble("cantidad"));
-                item.setIva(rs.getDouble("iva"));
-                item.setPrecioUnitario(rs.getDouble("precio_unitario"));
-                item.setTotalLinea(rs.getDouble("total_linea"));
                 factura.addItem(item);
             }
             rs.close();
