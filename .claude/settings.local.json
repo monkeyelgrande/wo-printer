@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export PGPASSWORD=monkey)",
+      "Bash(\"/c/Program Files/PostgreSQL/18/bin/psql.exe\" -h localhost -p 5432 -U postgres -d bodega_nuevo -c \"SELECT current_database\\(\\), version\\(\\);\")",
+      "Bash(PGPASSWORD=monkey psql -h localhost -p 5432 -U postgres -d bodega_nuevo -c \"SELECT \\(SELECT MAX\\(id\\) FROM facturas_cabeceras\\) AS max_id, \\(SELECT last_value FROM pg_sequences WHERE sequencename = 'facturas cabeceras id seq'\\) AS seq_last_value;\")",
+      "Bash(mvn -q -DskipTests compile)",
+      "PowerShell(Get-Command mvn -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command mvnw -ErrorAction SilentlyContinue)",
+      "Bash(git --version)",
+      "Bash(gh --version)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" status)",
+      "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" log --oneline -3)",
+      "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" checkout HEAD -- sql/schema.sql src/main/java/com/woprinter/config/AppConfig.java src/main/java/com/woprinter/service/OrdenGeneratorService.java src/main/java/com/woprinter/ui/MainWindow.java src/main/resources/config.properties)",
+      "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" diff HEAD --stat)"
+    ]
+  }
+}
