@@ -55,6 +55,12 @@ public class AppConfig {
         }
     }
 
+    public boolean getBoolean(String key, boolean defaultValue) {
+        String v = props.getProperty(key);
+        if (v == null) return defaultValue;
+        return Boolean.parseBoolean(v.trim());
+    }
+
     // Getters de conveniencia
     public String getDbUrl() { return get("db.url"); }
     public String getDbUser() { return get("db.user"); }
@@ -65,4 +71,5 @@ public class AppConfig {
     public int getWatchDelay() { return getInt("watch.delay.ms", 2000); }
     public int getPrinterCharWidth() { return getInt("printer.char.width", 48); }
     public int getPrinterTimeout() { return getInt("printer.timeout.ms", 5000); }
+    public boolean isGenerarOrdenesAutomaticas() { return getBoolean("ordenes.generar.automaticas", true); }
 }

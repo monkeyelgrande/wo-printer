@@ -1,5 +1,6 @@
 package com.woprinter.service;
 
+import com.woprinter.config.AppConfig;
 import com.woprinter.model.*;
 import com.woprinter.model.OrdenPorBodega.ItemOrden;
 import com.woprinter.model.ResultadoLookupProducto.Estado;
@@ -54,6 +55,7 @@ public class OrdenGeneratorService {
 
     public ResultadoOrden procesar(Factura factura) {
         String numeroFactura = factura.getNumeroCompleto();
+        boolean generarOrdenes = AppConfig.getInstance().isGenerarOrdenesAutomaticas();
         Connection conn = null;
         try {
             conn = db.getConnection();
@@ -81,17 +83,30 @@ public class OrdenGeneratorService {
             List<ItemClasificado> itemsOk = new ArrayList<ItemClasificado>();
             clasificarItems(conn, itemsConsolidados, itemsOk, novedades);
 
-            // 4 & 5. Contacto y usuario
-            ContactoInfo contacto = contactoSvc.resolver(conn, factura.getCliente(), factura.getConcepto());
-            int idUser = userSvc.resolverOCrear(conn);
-
-            // 6. Asignar bodegas y generar una orden (factura Salida) por cada bodega
+            // 4-6. Generación de órdenes (facturas_cabeceras + facturas_detalles +
+            // stock_productos.pendientes + movimientos_inventario). Toda esta sección es
+            // opcional: cuando ordenes.generar.automaticas=false el resto del flujo
+            // (facturas_impresas, detalle_factura, novedades_facturas) sigue corriendo.
+            ContactoInfo contacto = null;
+            int idUser = -1;
             Map<Integer, OrdenPorBodega> porBodega = new LinkedHashMap<Integer, OrdenPorBodega>();
-            Map<Integer, String> nombresBodega = cargarNombresBodegas(conn);
-            asignarYAcumular(conn, itemsOk, porBodega, nombresBodega, novedades);
 
-            for (OrdenPorBodega orden : porBodega.values()) {
-                generarFacturaSalida(conn, orden, factura, contacto, idUser);
+            if (generarOrdenes) {
+                // 4 & 5. Contacto y usuario
+                contacto = contactoSvc.resolver(conn, factura.getCliente(), factura.getConcepto());
+                idUser = userSvc.resolverOCrear(conn);
+
+                // 6. Asignar bodegas y generar una orden (factura Salida) por cada bodega
+                Map<Integer, String> nombresBodega = cargarNombresBodegas(conn);
+                asignarYAcumular(conn, itemsOk, porBodega, nombresBodega, novedades);
+
+                for (OrdenPorBodega orden : porBodega.values()) {
+                    generarFacturaSalida(conn, orden, factura, contacto, idUser);
+                }
+            } else {
+                System.out.println("[ORDEN] " + numeroFactura
+                        + " - generacion de ordenes deshabilitada (ordenes.generar.automaticas=false); "
+                        + "se omiten facturas_cabeceras/facturas_detalles/stock/movimientos");
             }
 
             // 7. Guardar factura_impresa + detalle (todos los ítems con flags)
@@ -106,8 +121,8 @@ public class OrdenGeneratorService {
 
             ResultadoOrden r = ResultadoOrden.exito(numeroFactura,
                     new ArrayList<OrdenPorBodega>(porBodega.values()), novedades);
-            r.setIdContactoResuelto(contacto.getId());
-            r.setIdUserSistema(idUser);
+            if (contacto != null) r.setIdContactoResuelto(contacto.getId());
+            if (idUser != -1) r.setIdUserSistema(idUser);
             r.setIdFacturaImpresa(idFacturaImpresa);
 
             System.out.println("[ORDEN] " + numeroFactura + " OK: " + porBodega.size()
