@@ -2,14 +2,18 @@
 
 Aplicación de escritorio en **Java 8 (Swing + FlatLaf)** que **vigila una carpeta** donde
 **WorldOffice** exporta facturas en formato Excel (`.xlsx`), las procesa contra una base de
-datos **PostgreSQL**, genera órdenes de despacho **por bodega** e **imprime tirillas** en
-impresoras **POS (térmicas)** mediante comandos **ESC/POS**.
+datos **PostgreSQL** y genera órdenes de despacho **por bodega** con sus registros e
+inventario.
 
 El objetivo es automatizar el flujo de mostrador/bodega: cada vez que se factura en
-WorldOffice y se exporta el Excel a una carpeta, la aplicación lo detecta, registra la
-operación en la base de datos e imprime automáticamente la(s) orden(es) de despacho en la
-impresora de la bodega correspondiente, además de una tirilla de **novedades** cuando algún
-producto no se reconoce.
+WorldOffice y se exporta el Excel a una carpeta, la aplicación lo detecta, clasifica sus
+ítems, **genera la(s) orden(es) de salida por bodega**, actualiza el stock pendiente y deja
+registradas las **novedades** cuando algún producto no se reconoce.
+
+> **Nota:** a pesar del nombre histórico del proyecto, `wo-printer` **ya no imprime tirillas**.
+> La impresión/notificación de las órdenes la realiza el sistema aliado **control bodega**
+> mediante sus propias notificaciones. Esta aplicación se limita a **procesar el Excel y
+> registrar las órdenes y novedades** en la base de datos.
 
 ---
 
@@ -24,7 +28,6 @@ producto no se reconoce.
 - [Configuración (`config.properties`)](#configuración-configproperties)
 - [Compilación y ejecución](#compilación-y-ejecución)
 - [Cómo funciona internamente (detalle)](#cómo-funciona-internamente-detalle)
-- [Impresión POS / ESC/POS](#impresión-pos--escpos)
 - [Solución de problemas](#solución-de-problemas)
 - [Tecnologías y dependencias](#tecnologías-y-dependencias)
 - [Notas para el repositorio público](#notas-para-el-repositorio-público)
@@ -37,20 +40,16 @@ producto no se reconoce.
    esperando a que el archivo esté **estable** (que WorldOffice termine de escribirlo).
 2. **Parsea el Excel** con Apache POI, leyendo solo las columnas **A–W** (cabecera + ítems).
 3. **Orquesta una transacción** contra PostgreSQL:
-   - Verifica **idempotencia** (no reprocesa una factura ya impresa).
+   - Verifica **idempotencia** (no reprocesa una factura ya registrada).
    - **Clasifica** los ítems en **válidos** (el producto existe en BD) y **novedades**
      (producto no encontrado).
    - Si está habilitado, **genera órdenes por bodega** (cabeceras + detalles), actualiza
      **stock pendiente** y registra **movimientos de inventario**.
-   - Registra la factura como impresa y guarda el detalle de impresión y las novedades.
-4. **Imprime las tirillas**:
-   - Una **orden por bodega**, enviada a la impresora asociada a esa bodega.
-   - Una tirilla de **novedades** (si las hay), enviada a las impresoras marcadas como de
-     notificaciones.
-5. **Mueve el archivo** a `procesados/` o `errores/` según el resultado (con reintentos si
+   - Registra la factura procesada y guarda su detalle y las novedades.
+4. **Mueve el archivo** a `procesados/` o `errores/` según el resultado (con reintentos si
    el archivo está bloqueado).
-6. Todo se controla desde una **interfaz gráfica** (`MainWindow`) que muestra el estado de
-   la vigilancia, las facturas procesadas y la cola de impresión.
+5. Todo se controla desde una **interfaz gráfica** (`MainWindow`) que muestra el estado de
+   la vigilancia, las facturas procesadas, las órdenes generadas y las novedades.
 
 ---
 
@@ -77,18 +76,9 @@ producto no se reconoce.
                             │  - novedades              │
                             └─────────────┬────────────┘
                                           ▼
-                            ┌──────────────────────────┐
-                            │  TicketGeneratorService   │  construye tirillas ESC/POS
-                            └─────────────┬────────────┘
-                                          ▼
-                            ┌──────────────────────────┐
-                            │  PrinterService           │  javax.print → impresora por nombre_windows
-                            └─────────────┬────────────┘
-                                          ▼
-                              Impresora de la bodega  +  Impresora(s) de novedades
-                                          │
-                                          ▼
                        archivo movido a  procesados/  ó  errores/
+
+  La impresión/notificación de las órdenes la realiza aparte el sistema "control bodega".
 ```
 
 Servicios principales (paquete `com.woprinter.service`):
@@ -101,9 +91,7 @@ Servicios principales (paquete `com.woprinter.service`):
 | `ProductoLookupService`      | Busca cada producto por código en la BD.                                         |
 | `BodegaAsignacionService`    | Determina la bodega de cada ítem/orden.                                          |
 | `ContactoResolverService`    | Resuelve datos de contacto/cliente.                                              |
-| `TicketGeneratorService`     | Genera los bytes ESC/POS de las tirillas (orden y novedades).                    |
-| `PrinterService`             | Envía los bytes a la impresora vía `javax.print`, buscándola por su nombre de Windows. |
-| `DatabaseService`            | Singleton de acceso a PostgreSQL (conexión, consultas, logging de impresión).    |
+| `DatabaseService`            | Singleton de acceso a PostgreSQL (conexión, consultas, registros).               |
 | `UsuarioSistemaService`      | Información del usuario/sistema.                                                 |
 
 ---
@@ -120,6 +108,7 @@ wo-printer/
 ├── sql/
 │   ├── schema.sql                  ← esquema PostgreSQL (tablas)
 │   ├── migracion_produccion.sql    ← script de migración a producción
+│   ├── cleanup_impresoras.sql      ← elimina tablas de impresión en BD ya migradas
 │   └── test_excel/
 │       ├── _generar.py             ← genera Excels de prueba
 │       ├── test_1_una_bodega.xlsx
@@ -139,7 +128,6 @@ wo-printer/
     │   │   ├── ProductoInfo.java           ResultadoLookupProducto.java
     │   │   ├── OrdenPorBodega.java         ResultadoOrden.java
     │   │   ├── Novedad.java                NovedadRegistro.java
-    │   │   ├── Impresora.java              PrintJob.java
     │   │   ├── AsignacionBodega.java       ConfiguracionEmpresa.java
     │   │   └── ContactoInfo.java
     │   ├── service/                ← lógica (ver tabla de arriba)
@@ -160,11 +148,9 @@ Base de datos por defecto: `bodega_nuevo`. Hay **dos grupos** de tablas:
 
 | Tabla                 | Propósito                                                                       |
 |-----------------------|---------------------------------------------------------------------------------|
-| `impresoras`          | Impresoras POS: `nombre_windows` (nombre exacto en Windows), `activa`, `tipo_bodega` (recibe órdenes), `tipo_notificaciones` (TRUE = recibe tirilla de novedades) e `id_bodega` (bodega que atiende). |
 | `facturas_impresas`   | Control de **idempotencia** (`numero_factura` único) + cabecera de lo procesado.|
 | `detalle_factura`     | Ítems de cada factura procesada, con `es_novedad` y `motivo_novedad`.           |
 | `novedades_facturas`  | Espejo operacional de novedades (flujo PENDIENTE→REVISADO→RESUELTO/IGNORADO).    |
-| `log_impresiones`     | Auditoría de cada impresión (estado, archivo origen, mensaje de error).         |
 
 **Tablas legadas del sistema `bodega_nuevo`** — deben existir **previamente**; `wo-printer`
 las lee/actualiza pero **no** las crea (las migraciones incrementales sobre ellas están en
@@ -182,6 +168,10 @@ las lee/actualiza pero **no** las crea (las migraciones incrementales sobre ella
 
 > Inicialización: crea la base `bodega_nuevo` (con el sistema legado), aplica
 > `sql/migracion_produccion.sql` y luego `sql/schema.sql`.
+>
+> Si vienes de una versión anterior que sí imprimía, aplica además
+> [`sql/cleanup_impresoras.sql`](sql/cleanup_impresoras.sql) para eliminar las
+> tablas `impresoras` y `log_impresiones`, que ya no se usan.
 
 ---
 
@@ -217,9 +207,6 @@ distintos escenarios (una/varias bodegas, con novedades, sin productos válidos)
 - **JDK 8** (el proyecto compila con `source/target 1.8`).
 - **Apache Maven 3.x**.
 - **PostgreSQL** con la base de datos creada y el esquema cargado.
-- Una o más **impresoras POS** compatibles con **ESC/POS**:
-  - de **red** (acepta RAW en el puerto 9100), o
-  - **USB/local** instalada en Windows (se referencia por su nombre del sistema).
 
 ---
 
@@ -246,15 +233,9 @@ watch.folder.errores=C:\\ImpresionesWorldOffice\\errores
 # Espera (ms) antes de leer un archivo nuevo (que WO termine de escribirlo)
 watch.delay.ms=2000
 
-# Ancho de impresión en caracteres (48 = 80mm, 32 = 58mm)
-printer.char.width=48
-
-# Timeout de conexión a impresora de red (ms)
-printer.timeout.ms=5000
-
 # Generación automática de órdenes:
 #   true  -> crea órdenes de salida por bodega (cabeceras+detalles, pendientes, movimientos)
-#   false -> omite la creación de órdenes; el resto del flujo (registro de impresión,
+#   false -> omite la creación de órdenes; el resto del flujo (registro de factura,
 #            detalle y novedades) sigue funcionando igual.
 ordenes.generar.automaticas=true
 ```
@@ -266,8 +247,6 @@ ordenes.generar.automaticas=true
 | `watch.folder.procesados`      | Destino de archivos procesados con éxito.                          | —       |
 | `watch.folder.errores`         | Destino de archivos con error.                                     | —       |
 | `watch.delay.ms`               | Espera antes de leer un archivo nuevo.                             | `2000`  |
-| `printer.char.width`           | Ancho de tirilla en caracteres (`48`=80 mm, `32`=58 mm).          | `48`    |
-| `printer.timeout.ms`           | Timeout de impresión (parámetro reservado; no usado por la impresión vía `javax.print`). | `5000`  |
 | `ordenes.generar.automaticas`  | Habilita/inhabilita la creación automática de órdenes.            | `true`  |
 
 > ⚠️ **Seguridad:** actualmente `config.properties` está **versionado en el repositorio** y
@@ -326,34 +305,12 @@ En **NetBeans** basta con abrir el proyecto y usar **Run** (clase principal:
       existe → **novedad**; si existe → ítem **válido**.
    3. Si `ordenes.generar.automaticas=true`, genera **una orden por bodega** con sus
       cabeceras/detalles, suma a `stock_productos.pendientes` y registra movimientos.
-   4. Registra la factura como impresa y guarda detalle y novedades.
+   4. Registra la factura procesada y guarda detalle y novedades.
    5. **Commit** al final; **rollback** ante cualquier excepción.
 
-5. **Impresión** — con las impresoras activas (`DatabaseService.getImpresorasActivas()`):
-   - Cada **orden por bodega** se imprime en la impresora cuyo `id_bodega` coincide. Si no
-     hay impresora para esa bodega, la orden se guarda y se registra como `SIN_IMPRESORA`.
-   - Si hay **novedades**, se imprime una tirilla en **todas** las impresoras marcadas con
-     `tipo_notificaciones = TRUE`.
-   - Cada intento se refleja en la **cola de impresión** (`PrintJob`) y se registra en BD
-     (`IMPRESO-*` / `ERROR-*`).
-
-6. **Cierre** — el archivo se mueve a `procesados/` (si todo salió bien) o `errores/`.
-
----
-
-## Impresión POS / ESC/POS
-
-`TicketGeneratorService` arma las tirillas con comandos **ESC/POS** estándar (inicializar,
-negrita, centrado, doble alto/ancho, avance y corte parcial de papel). El ancho de línea se
-toma de `printer.char.width` (48 para 80 mm, 32 para 58 mm).
-
-`PrinterService.imprimir(...)` envía los bytes mediante **`javax.print`**: busca el
-`PrintService` cuyo nombre coincide (sin distinguir mayúsculas) con `impresoras.nombre_windows`
-y le manda los datos como flujo `AUTOSENSE` (RAW). Si no encuentra una impresora con ese
-nombre, lanza un error que queda registrado en el log de impresión. Por eso el
-`nombre_windows` de cada impresora en la BD debe coincidir **exactamente** con el nombre con
-que el sistema operativo la tiene instalada (`PrinterService.listarImpresorasWindows()`
-ayuda a obtenerlos).
+5. **Cierre** — el archivo se mueve a `procesados/` (si todo salió bien) o `errores/`. La
+   impresión/notificación de las órdenes generadas corre por cuenta del sistema aliado
+   **control bodega**.
 
 ---
 
@@ -366,9 +323,6 @@ ayuda a obtenerlos).
 | `Error cargando configuracion`                     | Falta/está mal `config.properties`; revisa rutas y formato.                      |
 | No conecta a la base de datos                      | Verifica `db.url`, `db.user`, `db.password` y que PostgreSQL esté arriba.        |
 | `Factura ... ya estaba en BD`                      | Idempotencia: esa factura ya fue procesada (está en `facturas_impresas`).        |
-| Novedades no se imprimen                            | Ninguna impresora tiene `tipo_notificaciones = TRUE`.                            |
-| Orden no se imprime (`SIN_IMPRESORA`)              | No hay impresora activa con el `id_bodega` de esa orden.                         |
-| `Impresora no encontrada en Windows`               | `impresoras.nombre_windows` no coincide **exactamente** con el nombre instalado en Windows. |
 | Archivo no se mueve a procesados/errores            | Estaba bloqueado; el hilo de reintento lo moverá (hasta 60 intentos).           |
 
 ---
@@ -388,7 +342,6 @@ Definidas en [`pom.xml`](pom.xml):
 - **Lenguaje / JDK:** Java 8
 - **Build:** Maven (`maven-assembly-plugin` 3.3.0 → JAR con dependencias)
 - **Clase principal:** `com.woprinter.App`
-- **Impresión:** `javax.print` + sockets RAW (ESC/POS)
 
 ---
 
@@ -412,4 +365,4 @@ Definidas en [`pom.xml`](pom.xml):
 
 - Para reproducir el entorno: crea la BD PostgreSQL con el sistema legado `bodega_nuevo`,
   aplica `sql/migracion_produccion.sql` y `sql/schema.sql`, ajusta tu `config.properties`,
-  registra bodegas/impresoras/productos y prueba con los Excel de `sql/test_excel/`.
+  registra bodegas/productos y prueba con los Excel de `sql/test_excel/`.

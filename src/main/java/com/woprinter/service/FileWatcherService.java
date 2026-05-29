@@ -2,9 +2,6 @@ package com.woprinter.service;
 
 import com.woprinter.config.AppConfig;
 import com.woprinter.model.Factura;
-import com.woprinter.model.Impresora;
-import com.woprinter.model.OrdenPorBodega;
-import com.woprinter.model.PrintJob;
 import com.woprinter.model.ResultadoOrden;
 
 import java.io.File;
@@ -18,7 +15,6 @@ public class FileWatcherService implements Runnable {
     public interface WatcherListener {
         void onArchivoDetectado(String archivo);
         void onFacturaProcesada(String archivo, Factura factura);
-        void onImpresionEnviada(PrintJob job);
         void onError(String archivo, String mensaje);
         void onEstadoCambiado(boolean vigilando);
         void onInfo(String mensaje);
@@ -26,9 +22,6 @@ public class FileWatcherService implements Runnable {
 
     private final AppConfig config;
     private final ExcelParserService parser;
-    private final TicketGeneratorService ticketGen;
-    private final PrinterService printerService;
-    private final DatabaseService dbService;
     private final OrdenGeneratorService ordenGen;
 
     private volatile boolean running;
@@ -36,8 +29,7 @@ public class FileWatcherService implements Runnable {
     private Thread moverThread;
 
     private final List<WatcherListener> listeners;
-    private final CopyOnWriteArrayList<PrintJob> printQueue;
-    private final Set<String> facturasImpresas;
+    private final Set<String> facturasProcesadas;
     private final CopyOnWriteArrayList<PendienteMover> pendientesMover;
 
     // Registro de archivos ya vistos con su tamanio para detectar nuevos o modificados
@@ -49,19 +41,14 @@ public class FileWatcherService implements Runnable {
     public FileWatcherService() {
         this.config = AppConfig.getInstance();
         this.parser = new ExcelParserService();
-        this.ticketGen = new TicketGeneratorService();
-        this.printerService = new PrinterService();
-        this.dbService = DatabaseService.getInstance();
         this.ordenGen = new OrdenGeneratorService();
         this.listeners = new ArrayList<WatcherListener>();
-        this.printQueue = new CopyOnWriteArrayList<PrintJob>();
-        this.facturasImpresas = Collections.synchronizedSet(new HashSet<String>());
+        this.facturasProcesadas = Collections.synchronizedSet(new HashSet<String>());
         this.pendientesMover = new CopyOnWriteArrayList<PendienteMover>();
         this.archivosConocidos = new HashMap<String, Long>();
     }
 
     public void addListener(WatcherListener listener) { listeners.add(listener); }
-    public List<PrintJob> getPrintQueue() { return new ArrayList<PrintJob>(printQueue); }
     public boolean isRunning() { return running; }
 
     public void iniciar() {
@@ -207,11 +194,12 @@ public class FileWatcherService implements Runnable {
      *      - Idempotencia (facturas_impresas)
      *      - Clasificación de ítems + novedades
      *      - INSERT facturas_cabeceras/detalles + UPDATE pendientes + movimientos (AUTOMATICO)
+     *      - Registro en facturas_impresas / detalle_factura / novedades_facturas
      *      - Todo transaccional
-     *   3. Despacha 2 tipos de tirillas:
-     *      - ORDEN por bodega -> impresora con id_bodega = X
-     *      - NOVEDADES (si aplica) -> impresoras con tipo_notificaciones = TRUE
-     *   4. Mueve el archivo a procesados o errores
+     *   3. Mueve el archivo a procesados o errores
+     *
+     * La aplicación ya NO imprime tirillas: el sistema aliado (control bodega)
+     * notifica las órdenes generadas por su cuenta.
      */
     private void procesarArchivo(File archivo) {
         String nombreArchivo = archivo.getName();
@@ -223,22 +211,22 @@ public class FileWatcherService implements Runnable {
             String claveFactura = factura.getNumeroCompleto();
 
             // Anti-duplicado en memoria (complementa al check persistente del orquestador)
-            if (facturasImpresas.contains(claveFactura)) {
-                notifyInfo("Factura " + claveFactura + " ya impresa en esta sesión, ignorando");
+            if (facturasProcesadas.contains(claveFactura)) {
+                notifyInfo("Factura " + claveFactura + " ya procesada en esta sesión, ignorando");
                 moverODejarPendiente(archivo, config.getProcessedFolder());
                 return;
             }
-            facturasImpresas.add(claveFactura);
+            facturasProcesadas.add(claveFactura);
 
             System.out.println("[WATCHER] Factura parseada: " + claveFactura
                     + " - " + factura.getItems().size() + " items");
             notifyFacturaProcesada(nombreArchivo, factura);
 
-            // Orquestación transaccional
+            // Orquestación transaccional (creación de órdenes y registros)
             ResultadoOrden resultado = ordenGen.procesar(factura);
 
             if (resultado.isDuplicada()) {
-                notifyInfo("Factura " + claveFactura + " ya estaba en BD; se omite reimpresión");
+                notifyInfo("Factura " + claveFactura + " ya estaba en BD; se omite");
                 moverODejarPendiente(archivo, config.getProcessedFolder());
                 return;
             }
@@ -249,21 +237,10 @@ public class FileWatcherService implements Runnable {
                 return;
             }
 
-            // Impresiones
-            List<Impresora> impresoras = dbService.getImpresorasActivas();
-            if (impresoras.isEmpty()) {
-                notifyInfo("Sin impresoras activas; factura guardada sin tickets");
-                moverODejarPendiente(archivo, config.getProcessedFolder());
-                return;
-            }
-
-            boolean todasOk = true;
-            todasOk &= imprimirOrdenes(factura, resultado, impresoras, nombreArchivo);
-            if (resultado.hayNovedades()) {
-                todasOk &= imprimirNovedades(factura, resultado, impresoras, nombreArchivo);
-            }
-
-            moverODejarPendiente(archivo, todasOk ? config.getProcessedFolder() : config.getErrorFolder());
+            notifyInfo("Factura " + claveFactura + " procesada: "
+                    + resultado.getOrdenes().size() + " orden(es), "
+                    + resultado.getNovedades().size() + " novedad(es)");
+            moverODejarPendiente(archivo, config.getProcessedFolder());
 
         } catch (Exception e) {
             System.err.println("[WATCHER] Error procesando " + nombreArchivo + ": " + e.getMessage());
@@ -271,98 +248,6 @@ public class FileWatcherService implements Runnable {
             notifyError(nombreArchivo, e.getMessage());
             moverODejarPendiente(archivo, config.getErrorFolder());
         }
-    }
-
-    // ================================================================
-    // Impresión por tipo
-    // ================================================================
-
-    private boolean imprimirOrdenes(Factura factura, ResultadoOrden resultado,
-                                     List<Impresora> impresoras, String nombreArchivo) {
-        boolean ok = true;
-        for (OrdenPorBodega orden : resultado.getOrdenes()) {
-            Impresora imp = buscarImpresoraPorBodega(impresoras, orden.getIdBodega());
-            if (imp == null) {
-                notifyInfo("Sin impresora asignada a bodega " + orden.getNombreBodega()
-                        + "; orden " + orden.getIdCabeceraGenerada() + " guardada sin imprimir");
-                dbService.registrarImpresion(factura.getNumeroCompleto(), null,
-                        nombreArchivo, "SIN_IMPRESORA", "bodega=" + orden.getIdBodega(),
-                        factura.getConcepto());
-                continue;
-            }
-            PrintJob job = new PrintJob(nombreArchivo,
-                    factura.getNumeroCompleto() + " [Orden " + orden.getNombreBodega() + "]", imp);
-            printQueue.add(job);
-            job.setEstado(PrintJob.Estado.EN_PROCESO);
-            try {
-                byte[] data = ticketGen.generarTirillaOrden(factura, orden);
-                printerService.imprimir(imp, data);
-                job.setEstado(PrintJob.Estado.IMPRESO);
-                job.setFechaProcesado(new Date());
-                dbService.registrarImpresion(factura.getNumeroCompleto(), imp.getId(),
-                        nombreArchivo, "IMPRESO-ORDEN", null, factura.getConcepto());
-            } catch (IOException e) {
-                ok = false;
-                job.setEstado(PrintJob.Estado.ERROR);
-                job.setMensajeError(e.getMessage());
-                job.setFechaProcesado(new Date());
-                dbService.registrarImpresion(factura.getNumeroCompleto(), imp.getId(),
-                        nombreArchivo, "ERROR-ORDEN", e.getMessage(), factura.getConcepto());
-                System.err.println("[WATCHER] Error imprimiendo orden bodega " + orden.getIdBodega() + ": " + e.getMessage());
-            }
-            notifyImpresionEnviada(job);
-        }
-        return ok;
-    }
-
-    private boolean imprimirNovedades(Factura factura, ResultadoOrden resultado,
-                                       List<Impresora> impresoras, String nombreArchivo) {
-        boolean ok = true;
-        byte[] data = null;
-        boolean algunaImpresora = false;
-        for (Impresora imp : impresoras) {
-            if (!imp.isTipoNotificaciones()) continue;
-            algunaImpresora = true;
-            if (data == null) {
-                try { data = ticketGen.generarTirillaNovedades(factura, resultado.getNovedades()); }
-                catch (IOException e) { return false; }
-            }
-            ok &= despachar(imp, data, factura, "NOVEDADES", nombreArchivo);
-        }
-        if (!algunaImpresora) {
-            notifyInfo("Hay " + resultado.getNovedades().size() + " novedades pero no hay impresora configurada como NOTIFICACIONES");
-        }
-        return ok;
-    }
-
-    private boolean despachar(Impresora imp, byte[] data, Factura factura, String tag, String nombreArchivo) {
-        PrintJob job = new PrintJob(nombreArchivo, factura.getNumeroCompleto() + " [" + tag + "]", imp);
-        printQueue.add(job);
-        job.setEstado(PrintJob.Estado.EN_PROCESO);
-        try {
-            printerService.imprimir(imp, data);
-            job.setEstado(PrintJob.Estado.IMPRESO);
-            job.setFechaProcesado(new Date());
-            dbService.registrarImpresion(factura.getNumeroCompleto(), imp.getId(),
-                    nombreArchivo, "IMPRESO-" + tag, null, factura.getConcepto());
-            notifyImpresionEnviada(job);
-            return true;
-        } catch (IOException e) {
-            job.setEstado(PrintJob.Estado.ERROR);
-            job.setMensajeError(e.getMessage());
-            job.setFechaProcesado(new Date());
-            dbService.registrarImpresion(factura.getNumeroCompleto(), imp.getId(),
-                    nombreArchivo, "ERROR-" + tag, e.getMessage(), factura.getConcepto());
-            notifyImpresionEnviada(job);
-            return false;
-        }
-    }
-
-    private static Impresora buscarImpresoraPorBodega(List<Impresora> impresoras, int idBodega) {
-        for (Impresora i : impresoras) {
-            if (i.getIdBodega() != null && i.getIdBodega() == idBodega) return i;
-        }
-        return null;
     }
 
     private void moverODejarPendiente(File archivo, String destFolder) {
@@ -445,7 +330,6 @@ public class FileWatcherService implements Runnable {
     // --- Notificaciones ---
     private void notifyArchivoDetectado(String archivo) { for (WatcherListener l : listeners) l.onArchivoDetectado(archivo); }
     private void notifyFacturaProcesada(String archivo, Factura factura) { for (WatcherListener l : listeners) l.onFacturaProcesada(archivo, factura); }
-    private void notifyImpresionEnviada(PrintJob job) { for (WatcherListener l : listeners) l.onImpresionEnviada(job); }
     private void notifyError(String archivo, String mensaje) { for (WatcherListener l : listeners) l.onError(archivo, mensaje); }
     private void notifyEstado(boolean vigilando) { for (WatcherListener l : listeners) l.onEstadoCambiado(vigilando); }
     private void notifyInfo(String mensaje) { for (WatcherListener l : listeners) l.onInfo(mensaje); }

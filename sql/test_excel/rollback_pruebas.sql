@@ -47,8 +47,4 @@ DELETE FROM detalle_factura WHERE factura_id IN (
 DELETE FROM facturas_impresas
 WHERE numero_factura IN ('FVE-90001','FVE-90002','FVE-90003','FVE-90004','FVE-90005');
 
--- 5. Borrar log_impresiones
-DELETE FROM log_impresiones
-WHERE numero_factura IN ('FVE-90001','FVE-90002','FVE-90003','FVE-90004','FVE-90005');
-
 COMMIT;

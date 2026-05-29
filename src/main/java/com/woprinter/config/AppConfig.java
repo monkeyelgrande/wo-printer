@@ -69,7 +69,5 @@ public class AppConfig {
     public String getProcessedFolder() { return get("watch.folder.procesados"); }
     public String getErrorFolder() { return get("watch.folder.errores"); }
     public int getWatchDelay() { return getInt("watch.delay.ms", 2000); }
-    public int getPrinterCharWidth() { return getInt("printer.char.width", 48); }
-    public int getPrinterTimeout() { return getInt("printer.timeout.ms", 5000); }
     public boolean isGenerarOrdenesAutomaticas() { return getBoolean("ordenes.generar.automaticas", true); }
 }

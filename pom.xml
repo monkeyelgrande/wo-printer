@@ -11,7 +11,7 @@
     <packaging>jar</packaging>
 
     <name>WorldOffice Printer</name>
-    <description>Monitor de carpeta para imprimir facturas de WorldOffice en impresoras POS</description>
+    <description>Monitor de carpeta que procesa facturas de WorldOffice y genera ordenes de despacho por bodega</description>
 
     <properties>
         <maven.compiler.source>1.8</maven.compiler.source>

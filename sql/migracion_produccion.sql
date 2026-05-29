@@ -9,9 +9,11 @@
 --
 -- CHANGELOG DE SCHEMA
 -- -------------------------------------------------------------------------
--- FASE 1  (2026-04-23)  impresoras.id_bodega (FK bodegas)
---                       impresoras.tipo_notificaciones BOOLEAN
---                       índice idx_mov_prod_tipo_fecha
+-- FASE 1  (2026-04-23)  índice idx_mov_prod_tipo_fecha
+--                       (NOTA: las columnas impresoras.id_bodega y
+--                        impresoras.tipo_notificaciones fueron retiradas al
+--                        eliminar la integración de impresión; ver
+--                        sql/cleanup_impresoras.sql para limpiar BD existentes)
 -- FASE 6  (2026-04-23)  detalle_factura.es_novedad BOOLEAN
 --                       detalle_factura.motivo_novedad VARCHAR(200)
 --                       índice parcial idx_detalle_factura_novedad
@@ -40,41 +42,14 @@
 -- FASE 1 — Cambios estructurales base
 -- Fecha: 2026-04-23
 -- Descripción:
---   * Añadir relación impresora ↔ bodega (impresoras.id_bodega)
---   * Añadir tipo "notificaciones" a impresoras
 --   * Índice para consulta de última bodega con movimiento por producto
+--
+-- NOTA: esta fase incluía originalmente la relación impresora ↔ bodega
+-- (impresoras.id_bodega) y el flag impresoras.tipo_notificaciones. Esos
+-- cambios se retiraron al eliminar la integración de impresión de wo-printer.
+-- Para limpiar las tablas de impresoras en una BD ya migrada usa
+-- sql/cleanup_impresoras.sql.
 -- ============================================================================
-
--- 1.1 Columna id_bodega en impresoras (relación directa con bodega del sistema)
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name   = 'impresoras'
-          AND column_name  = 'id_bodega'
-    ) THEN
-        ALTER TABLE impresoras
-            ADD COLUMN id_bodega INTEGER;
-        ALTER TABLE impresoras
-            ADD CONSTRAINT fk_impresoras_bodega
-            FOREIGN KEY (id_bodega) REFERENCES bodegas(id);
-    END IF;
-END$$;
-
--- 1.2 Flag tipo_notificaciones en impresoras
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name   = 'impresoras'
-          AND column_name  = 'tipo_notificaciones'
-    ) THEN
-        ALTER TABLE impresoras
-            ADD COLUMN tipo_notificaciones BOOLEAN NOT NULL DEFAULT FALSE;
-    END IF;
-END$$;
 
 -- 1.3 Índice compuesto para acelerar búsquedas de "última bodega con movimiento"
 -- Se usa en BodegaAsignacionService cuando todas las bodegas tienen disponible <= 0
@@ -243,15 +218,11 @@ END$$;
 -- VERIFICACIÓN POST-APLICACIÓN
 -- ============================================================================
 -- Ejecutar este bloque manualmente después de la migración. Debe retornar
--- exactamente 12 filas con ok=TRUE. Si alguna sale FALSE, algo no se aplicó.
+-- exactamente 10 filas con ok=TRUE. Si alguna sale FALSE, algo no se aplicó.
 -- ============================================================================
 /*
-SELECT '1.1 impresoras.id_bodega' AS item,
-       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='impresoras' AND column_name='id_bodega') AS ok
-UNION ALL SELECT '1.2 impresoras.tipo_notificaciones',
-       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='impresoras' AND column_name='tipo_notificaciones')
-UNION ALL SELECT '1.3 idx_mov_prod_tipo_fecha',
-       EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_mov_prod_tipo_fecha')
+SELECT '1.3 idx_mov_prod_tipo_fecha' AS item,
+       EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_mov_prod_tipo_fecha') AS ok
 UNION ALL SELECT '6.1 detalle_factura.es_novedad',
        EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='detalle_factura' AND column_name='es_novedad')
 UNION ALL SELECT '6.1 detalle_factura.motivo_novedad',

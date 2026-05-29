@@ -2,16 +2,12 @@ package com.woprinter.ui;
 
 import com.woprinter.config.AppConfig;
 import com.woprinter.model.Factura;
-import com.woprinter.model.Impresora;
 import com.woprinter.model.NovedadRegistro;
-import com.woprinter.model.PrintJob;
 import com.woprinter.service.DatabaseService;
 import com.woprinter.service.FileWatcherService;
-import com.woprinter.service.PrinterService;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableColumnModel;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -24,7 +20,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
 
     private final FileWatcherService watcherService;
     private final DatabaseService dbService;
-    private final PrinterService printerService;
 
     // Panel Monitor
     private JButton btnIniciar;
@@ -32,16 +27,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
     private JLabel lblEstado;
     private JLabel lblCarpeta;
     private JTextArea txtLog;
-    private DefaultTableModel colaTableModel;
-    private JTable tablaCola;
-
-    // Panel Impresoras
-    private DefaultTableModel impTableModel;
-    private JTable tablaImpresoras;
-    private JTextField txtNombre;
-    private JComboBox<String> cmbImpresorasWindows;
-    private JComboBox<BodegaItem> cmbBodega;
-    private JCheckBox chkTipoNotificaciones;
 
     // Panel Facturas
     private JTextField txtBuscarFactura;
@@ -69,29 +54,16 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
     private JTabbedPane mainTabs;
     private int tabIndexNovedades = -1;
 
-    /** Item del combo de bodegas; toString define el texto visible. */
-    private static class BodegaItem {
-        final Integer id;
-        final String nombre;
-        BodegaItem(Integer id, String nombre) { this.id = id; this.nombre = nombre; }
-        @Override public String toString() {
-            if (id == null) return "(Sin bodega)";
-            return id + " - " + (nombre != null ? nombre : "");
-        }
-    }
-
     private final SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
 
     public MainWindow() {
-        super("WorldOffice Printer - Monitor de Impresion");
+        super("WorldOffice Printer - Monitor de Órdenes");
         this.watcherService = new FileWatcherService();
         this.dbService = DatabaseService.getInstance();
-        this.printerService = new PrinterService();
 
         watcherService.addListener(this);
 
         initUI();
-        cargarImpresoras();
         verificarConexionDB();
     }
 
@@ -118,7 +90,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
 
         mainTabs = new JTabbedPane();
         mainTabs.addTab("Monitor", crearPanelMonitor());
-        mainTabs.addTab("Impresoras", crearPanelImpresoras());
         mainTabs.addTab("Facturas", crearPanelFacturas());
         mainTabs.addTab("Órdenes Generadas", crearPanelOrdenes());
         mainTabs.addTab("Novedades", crearPanelNovedades());
@@ -173,26 +144,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         topPanel.add(btnPanel, BorderLayout.EAST);
         panel.add(topPanel, BorderLayout.NORTH);
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setResizeWeight(0.5);
-
-        String[] colHeaders = {"Hora", "Factura", "Archivo", "Impresora", "Estado", "Error"};
-        colaTableModel = new DefaultTableModel(colHeaders, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) { return false; }
-        };
-        tablaCola = new JTable(colaTableModel);
-        tablaCola.getColumnModel().getColumn(0).setPreferredWidth(60);
-        tablaCola.getColumnModel().getColumn(1).setPreferredWidth(100);
-        tablaCola.getColumnModel().getColumn(2).setPreferredWidth(150);
-        tablaCola.getColumnModel().getColumn(3).setPreferredWidth(120);
-        tablaCola.getColumnModel().getColumn(4).setPreferredWidth(70);
-        tablaCola.getColumnModel().getColumn(5).setPreferredWidth(200);
-
-        JPanel colaPanel = new JPanel(new BorderLayout());
-        colaPanel.setBorder(BorderFactory.createTitledBorder("Cola de Impresion"));
-        colaPanel.add(new JScrollPane(tablaCola), BorderLayout.CENTER);
-
         txtLog = new JTextArea();
         txtLog.setEditable(false);
         txtLog.setFont(new Font("Monospaced", Font.PLAIN, 12));
@@ -200,171 +151,8 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         logPanel.setBorder(BorderFactory.createTitledBorder("Log de Eventos"));
         logPanel.add(new JScrollPane(txtLog), BorderLayout.CENTER);
 
-        splitPane.setTopComponent(colaPanel);
-        splitPane.setBottomComponent(logPanel);
-        panel.add(splitPane, BorderLayout.CENTER);
+        panel.add(logPanel, BorderLayout.CENTER);
 
-        return panel;
-    }
-
-    // ============================================================
-    // TAB: Impresoras
-    // ============================================================
-
-    private JPanel crearPanelImpresoras() {
-        JPanel panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        // Tabla: ID, Nombre, Windows, Bodega, Notif, Activa
-        String[] headers = {"ID", "Nombre", "Impresora Windows", "Bodega", "Notif.", "Activa"};
-        impTableModel = new DefaultTableModel(headers, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) { return false; }
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                if (columnIndex >= 4) return Boolean.class;
-                return String.class;
-            }
-        };
-        tablaImpresoras = new JTable(impTableModel);
-        tablaImpresoras.getColumnModel().getColumn(0).setPreferredWidth(40);
-        tablaImpresoras.getColumnModel().getColumn(1).setPreferredWidth(140);
-        tablaImpresoras.getColumnModel().getColumn(2).setPreferredWidth(150);
-        tablaImpresoras.getColumnModel().getColumn(3).setPreferredWidth(140);
-        tablaImpresoras.getColumnModel().getColumn(4).setPreferredWidth(60);
-        tablaImpresoras.getColumnModel().getColumn(5).setPreferredWidth(50);
-
-        panel.add(new JScrollPane(tablaImpresoras), BorderLayout.CENTER);
-
-        // Panel de formulario
-        JPanel formPanel = new JPanel(new GridBagLayout());
-        formPanel.setBorder(BorderFactory.createTitledBorder("Agregar / Editar Impresora"));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 5, 3, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        // Fila 1: Nombre + Combo impresoras + Detectar
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        formPanel.add(new JLabel("Nombre:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        txtNombre = new JTextField(15);
-        formPanel.add(txtNombre, gbc);
-
-        gbc.gridx = 2; gbc.weightx = 0;
-        formPanel.add(new JLabel("Impresora Windows:"), gbc);
-        gbc.gridx = 3; gbc.weightx = 1;
-        cmbImpresorasWindows = new JComboBox<String>();
-        formPanel.add(cmbImpresorasWindows, gbc);
-
-        gbc.gridx = 4; gbc.weightx = 0;
-        JButton btnDetectar = new JButton("Detectar");
-        btnDetectar.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) { detectarImpresorasWindows(); }
-        });
-        formPanel.add(btnDetectar, gbc);
-
-        // Fila 2: Bodega + tipos
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
-        formPanel.add(new JLabel("Bodega:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1;
-        cmbBodega = new JComboBox<BodegaItem>();
-        cargarComboBodegas();
-        formPanel.add(cmbBodega, gbc);
-
-        gbc.gridx = 2; gbc.gridwidth = 3; gbc.weightx = 1;
-        JPanel tipoPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        chkTipoNotificaciones = new JCheckBox("Notificaciones", false);
-        tipoPanel.add(chkTipoNotificaciones);
-        formPanel.add(tipoPanel, gbc);
-        gbc.gridwidth = 1;
-
-        // Fila 3: Botones
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-
-        JButton btnAgregar = new JButton("Agregar");
-        btnAgregar.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) { agregarImpresora(); }
-        });
-
-        JButton btnEditar = new JButton("Editar");
-        btnEditar.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) { editarImpresora(); }
-        });
-
-        JButton btnEliminar = new JButton("Eliminar");
-        btnEliminar.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) { eliminarImpresora(); }
-        });
-
-        JButton btnToggle = new JButton("Activar/Desactivar");
-        btnToggle.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) { toggleImpresora(); }
-        });
-
-        JButton btnTest = new JButton("Probar");
-        btnTest.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) { probarConexion(); }
-        });
-
-        JButton btnRefresh = new JButton("Refrescar");
-        btnRefresh.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) { cargarImpresoras(); }
-        });
-
-        btnPanel.add(btnAgregar);
-        btnPanel.add(btnEditar);
-        btnPanel.add(btnEliminar);
-        btnPanel.add(btnToggle);
-        btnPanel.add(btnTest);
-        btnPanel.add(btnRefresh);
-
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 5;
-        formPanel.add(btnPanel, gbc);
-
-        panel.add(formPanel, BorderLayout.SOUTH);
-
-        // Al seleccionar fila, cargar en formulario
-        tablaImpresoras.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                int row = tablaImpresoras.getSelectedRow();
-                if (row >= 0) {
-                    txtNombre.setText((String) impTableModel.getValueAt(row, 1));
-                    String winName = (String) impTableModel.getValueAt(row, 2);
-                    boolean found = false;
-                    for (int i = 0; i < cmbImpresorasWindows.getItemCount(); i++) {
-                        if (cmbImpresorasWindows.getItemAt(i).equals(winName)) {
-                            cmbImpresorasWindows.setSelectedIndex(i);
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        cmbImpresorasWindows.addItem(winName);
-                        cmbImpresorasWindows.setSelectedItem(winName);
-                    }
-
-                    // Cargar datos desde la BD (bodega, flags)
-                    List<Impresora> todas = dbService.getAllImpresoras();
-                    int id = Integer.parseInt((String) impTableModel.getValueAt(row, 0));
-                    for (Impresora imp : todas) {
-                        if (imp.getId() == id) {
-                            chkTipoNotificaciones.setSelected(imp.isTipoNotificaciones());
-                            seleccionarBodegaEnCombo(imp.getIdBodega());
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-
-        detectarImpresorasWindows();
         return panel;
     }
 
@@ -399,16 +187,12 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         });
         searchPanel.add(btnHoy);
 
-        JLabel lblInfo = new JLabel("   Doble clic para reimprimir");
-        lblInfo.setFont(lblInfo.getFont().deriveFont(Font.ITALIC, 11f));
-        searchPanel.add(lblInfo);
-
         panel.add(searchPanel, BorderLayout.NORTH);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         splitPane.setResizeWeight(0.4);
 
-        String[] facHeaders = {"Numero", "Cliente", "Fecha Factura", "Fecha Impresion"};
+        String[] facHeaders = {"Numero", "Cliente", "Fecha Factura", "Fecha Procesado"};
         facturasTableModel = new DefaultTableModel(facHeaders, 0) {
             @Override
             public boolean isCellEditable(int row, int column) { return false; }
@@ -429,18 +213,8 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
             }
         });
 
-        // Doble clic para reimprimir
-        tablaFacturas.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    reimprimirFactura();
-                }
-            }
-        });
-
         JPanel facPanel = new JPanel(new BorderLayout());
-        facPanel.setBorder(BorderFactory.createTitledBorder("Facturas Impresas (doble clic para reimprimir)"));
+        facPanel.setBorder(BorderFactory.createTitledBorder("Facturas Procesadas"));
         facPanel.add(new JScrollPane(tablaFacturas), BorderLayout.CENTER);
 
         String[] prodHeaders = {"Codigo", "Descripcion", "Cantidad"};
@@ -475,19 +249,8 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
     // ============================================================
 
     private void iniciarVigilancia() {
-        List<Impresora> activas = dbService.getImpresorasActivas();
-        if (activas.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    "No hay impresoras activas configuradas.\nConfigure al menos una impresora antes de iniciar.",
-                    "Sin impresoras", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
         watcherService.iniciar();
-        appendLog("Vigilancia iniciada - " + activas.size() + " impresora(s) activa(s)");
-        for (Impresora imp : activas) {
-            appendLog("  -> " + imp);
-        }
+        appendLog("Vigilancia iniciada");
     }
 
     private void detenerVigilancia() {
@@ -503,270 +266,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
             appendLog("ERROR: No se pudo conectar a la base de datos");
             appendLog("Verifique config.properties (db.url, db.user, db.password)");
         }
-    }
-
-    private void detectarImpresorasWindows() {
-        cmbImpresorasWindows.removeAllItems();
-        List<String> nombres = PrinterService.listarImpresorasWindows();
-        for (String nombre : nombres) {
-            cmbImpresorasWindows.addItem(nombre);
-        }
-        appendLog("Impresoras Windows detectadas: " + nombres.size());
-    }
-
-    private void cargarImpresoras() {
-        impTableModel.setRowCount(0);
-        List<Impresora> lista = dbService.getAllImpresoras();
-        for (Impresora imp : lista) {
-            String bodegaTxt = imp.getIdBodega() != null
-                    ? (imp.getNombreBodega() != null ? imp.getNombreBodega() : ("Bodega " + imp.getIdBodega()))
-                    : "";
-            impTableModel.addRow(new Object[]{
-                    String.valueOf(imp.getId()),
-                    imp.getNombre(),
-                    imp.getNombreWindows(),
-                    bodegaTxt,
-                    imp.isTipoNotificaciones(),
-                    imp.isActiva()
-            });
-        }
-    }
-
-    private void cargarComboBodegas() {
-        cmbBodega.removeAllItems();
-        cmbBodega.addItem(new BodegaItem(null, null));
-        for (Object[] row : dbService.getBodegas()) {
-            cmbBodega.addItem(new BodegaItem((Integer) row[0], (String) row[1]));
-        }
-    }
-
-    private void seleccionarBodegaEnCombo(Integer idBodega) {
-        for (int i = 0; i < cmbBodega.getItemCount(); i++) {
-            BodegaItem it = cmbBodega.getItemAt(i);
-            if ((idBodega == null && it.id == null)
-                    || (idBodega != null && it.id != null && it.id.equals(idBodega))) {
-                cmbBodega.setSelectedIndex(i);
-                return;
-            }
-        }
-        cmbBodega.setSelectedIndex(0);
-    }
-
-    private Integer getIdBodegaSeleccionado() {
-        BodegaItem sel = (BodegaItem) cmbBodega.getSelectedItem();
-        return sel != null ? sel.id : null;
-    }
-
-    private void agregarImpresora() {
-        String nombre = txtNombre.getText().trim();
-        String nombreWindows = (String) cmbImpresorasWindows.getSelectedItem();
-
-        if (nombre.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "El nombre es obligatorio", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        if (nombreWindows == null || nombreWindows.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Seleccione una impresora de Windows", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        Integer idBodega = getIdBodegaSeleccionado();
-        boolean tipoNotif = chkTipoNotificaciones.isSelected();
-        if (idBodega == null && !tipoNotif) {
-            JOptionPane.showMessageDialog(this,
-                    "Asigne al menos una función: bodega o notificaciones",
-                    "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        if (dbService.agregarImpresora(nombre, nombreWindows, false, tipoNotif, idBodega)) {
-            cargarImpresoras();
-            limpiarFormImpresora();
-            appendLog("Impresora agregada: " + nombre + " [" + nombreWindows + "]");
-        }
-    }
-
-    private void editarImpresora() {
-        int row = tablaImpresoras.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Seleccione una impresora", "Aviso", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int id = Integer.parseInt((String) impTableModel.getValueAt(row, 0));
-        String nombre = txtNombre.getText().trim();
-        String nombreWindows = (String) cmbImpresorasWindows.getSelectedItem();
-        boolean activa = (Boolean) impTableModel.getValueAt(row, 5);
-
-        if (dbService.actualizarImpresora(id, nombre, nombreWindows, activa,
-                false, chkTipoNotificaciones.isSelected(), getIdBodegaSeleccionado())) {
-            cargarImpresoras();
-            appendLog("Impresora actualizada: " + nombre);
-        }
-    }
-
-    private void eliminarImpresora() {
-        int row = tablaImpresoras.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Seleccione una impresora", "Aviso", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int id = Integer.parseInt((String) impTableModel.getValueAt(row, 0));
-        String nombre = (String) impTableModel.getValueAt(row, 1);
-
-        int resp = JOptionPane.showConfirmDialog(this,
-                "Eliminar la impresora '" + nombre + "'?",
-                "Confirmar", JOptionPane.YES_NO_OPTION);
-
-        if (resp == JOptionPane.YES_OPTION) {
-            if (dbService.eliminarImpresora(id)) {
-                cargarImpresoras();
-                limpiarFormImpresora();
-                appendLog("Impresora eliminada: " + nombre);
-            }
-        }
-    }
-
-    private void toggleImpresora() {
-        int row = tablaImpresoras.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Seleccione una impresora", "Aviso", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        int id = Integer.parseInt((String) impTableModel.getValueAt(row, 0));
-        String nombre = (String) impTableModel.getValueAt(row, 1);
-        boolean activa = (Boolean) impTableModel.getValueAt(row, 5);
-
-        // Obtener datos actuales de la impresora
-        List<Impresora> todas = dbService.getAllImpresoras();
-        for (Impresora imp : todas) {
-            if (imp.getId() == id) {
-                if (dbService.actualizarImpresora(id, imp.getNombre(), imp.getNombreWindows(),
-                        !activa, false, imp.isTipoNotificaciones(), imp.getIdBodega())) {
-                    cargarImpresoras();
-                    appendLog("Impresora " + nombre + " -> " + (!activa ? "ACTIVADA" : "DESACTIVADA"));
-                }
-                break;
-            }
-        }
-    }
-
-    private void probarConexion() {
-        int row = tablaImpresoras.getSelectedRow();
-        if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Seleccione una impresora", "Aviso", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        String nombre = (String) impTableModel.getValueAt(row, 1);
-        String nombreWindows = (String) impTableModel.getValueAt(row, 2);
-        String tipo = (String) impTableModel.getValueAt(row, 3);
-
-        Impresora imp = new Impresora(0, nombre, nombreWindows, true, false, false, false, null, null);
-
-        if (!printerService.testConexion(imp)) {
-            appendLog("ERROR: Impresora NO encontrada en Windows: " + nombreWindows);
-            JOptionPane.showMessageDialog(this,
-                    "No se encontro la impresora '" + nombreWindows + "' en Windows.\n"
-                    + "Verifique que este instalada y el nombre sea exacto.",
-                    "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        appendLog("Enviando prueba a: " + nombreWindows);
-
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    byte[] testTicket = generarTicketPrueba(nombre, nombreWindows, tipo);
-                    printerService.imprimir(imp, testTicket);
-
-                    SwingUtilities.invokeLater(new Runnable() {
-                        @Override
-                        public void run() {
-                            appendLog("Prueba enviada OK a: " + nombreWindows);
-                            JOptionPane.showMessageDialog(MainWindow.this,
-                                    "Prueba enviada a '" + nombreWindows + "'",
-                                    "Test OK", JOptionPane.INFORMATION_MESSAGE);
-                        }
-                    });
-                } catch (Exception e) {
-                    SwingUtilities.invokeLater(new Runnable() {
-                        @Override
-                        public void run() {
-                            appendLog("ERROR prueba " + nombreWindows + ": " + e.getMessage());
-                            JOptionPane.showMessageDialog(MainWindow.this,
-                                    "Error enviando prueba: " + e.getMessage(),
-                                    "Error", JOptionPane.ERROR_MESSAGE);
-                        }
-                    });
-                }
-            }
-        }).start();
-    }
-
-    private byte[] generarTicketPrueba(String nombre, String nombreWindows, String tipo) throws java.io.IOException {
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-        byte[] INIT = {0x1B, 0x40};
-        byte[] BOLD_ON = {0x1B, 0x45, 0x01};
-        byte[] BOLD_OFF = {0x1B, 0x45, 0x00};
-        byte[] CENTER = {0x1B, 0x61, 0x01};
-        byte[] LEFT = {0x1B, 0x61, 0x00};
-        byte[] DOUBLE = {0x1B, 0x21, 0x30};
-        byte[] NORMAL = {0x1B, 0x21, 0x00};
-        byte[] FEED = {0x1B, 0x64, 0x03};
-        byte[] CUT = {0x1D, 0x56, 0x01};
-        byte[] LF = {0x0A};
-
-        String sep = "------------------------------------------------";
-        java.text.SimpleDateFormat sdf2 = new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
-
-        out.write(INIT);
-        out.write(CENTER);
-        out.write(BOLD_ON);
-        out.write(DOUBLE);
-        out.write("PRUEBA".getBytes("CP437"));
-        out.write(LF);
-        out.write(NORMAL);
-        out.write(BOLD_OFF);
-        out.write(LF);
-
-        out.write(LEFT);
-        out.write(sep.getBytes("CP437"));
-        out.write(LF);
-        out.write(("Impresora: " + nombre).getBytes("CP437"));
-        out.write(LF);
-        out.write(("Windows:   " + nombreWindows).getBytes("CP437"));
-        out.write(LF);
-        out.write(("Tipo:      " + tipo).getBytes("CP437"));
-        out.write(LF);
-        out.write(("Fecha:     " + sdf2.format(new java.util.Date())).getBytes("CP437"));
-        out.write(LF);
-        out.write(sep.getBytes("CP437"));
-        out.write(LF);
-
-        out.write(CENTER);
-        out.write("Impresora funcionando OK".getBytes("CP437"));
-        out.write(LF);
-        out.write(LF);
-
-        out.write(FEED);
-        out.write(CUT);
-
-        return out.toByteArray();
-    }
-
-    private void limpiarFormImpresora() {
-        txtNombre.setText("");
-        if (cmbImpresorasWindows.getItemCount() > 0) {
-            cmbImpresorasWindows.setSelectedIndex(0);
-        }
-        if (cmbBodega.getItemCount() > 0) {
-            cmbBodega.setSelectedIndex(0);
-        }
-        chkTipoNotificaciones.setSelected(false);
     }
 
     // --- Acciones tab Facturas ---
@@ -812,84 +311,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         }
     }
 
-    private void reimprimirFactura() {
-        int row = tablaFacturas.getSelectedRow();
-        if (row < 0) return;
-
-        String numeroFactura = (String) facturasTableModel.getValueAt(row, 0);
-        String cliente = (String) facturasTableModel.getValueAt(row, 1);
-
-        int resp = JOptionPane.showConfirmDialog(this,
-                "Reimprimir factura " + numeroFactura + "?\nCliente: " + cliente,
-                "Confirmar reimpresion", JOptionPane.YES_NO_OPTION);
-
-        if (resp != JOptionPane.YES_OPTION) return;
-
-        // Reconstruir factura desde la BD
-        com.woprinter.model.Factura factura = dbService.reconstruirFactura(numeroFactura);
-        if (factura == null || factura.getItems().isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    "No se pudo reconstruir la factura " + numeroFactura,
-                    "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        // Ejecutar reimpresion en hilo aparte para no bloquear UI
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    com.woprinter.service.TicketGeneratorService ticketGen = new com.woprinter.service.TicketGeneratorService();
-                    com.woprinter.service.PrinterService printerSvc = new com.woprinter.service.PrinterService();
-
-                    byte[] tirillaBodega = ticketGen.generarTirillaBodega(factura);
-
-                    List<Impresora> impresoras = dbService.getImpresorasActivas();
-                    int enviados = 0;
-                    int errores = 0;
-
-                    for (Impresora imp : impresoras) {
-                        if (imp.isTipoBodega()) {
-                            try {
-                                printerSvc.imprimir(imp, tirillaBodega);
-                                enviados++;
-                            } catch (Exception e) {
-                                errores++;
-                                System.err.println("[REPRINT] Error bodega " + imp + ": " + e.getMessage());
-                            }
-                        }
-                    }
-
-                    final int fEnviados = enviados;
-                    final int fErrores = errores;
-                    SwingUtilities.invokeLater(new Runnable() {
-                        @Override
-                        public void run() {
-                            appendLog("Reimpresion " + numeroFactura + ": " + fEnviados + " enviados"
-                                    + (fErrores > 0 ? ", " + fErrores + " errores" : ""));
-                            JOptionPane.showMessageDialog(MainWindow.this,
-                                    "Reimpresion de " + numeroFactura + " completada\n"
-                                    + fEnviados + " tirillas enviadas"
-                                    + (fErrores > 0 ? "\n" + fErrores + " con errores" : ""),
-                                    "Reimpresion", fErrores > 0 ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
-                        }
-                    });
-
-                } catch (Exception e) {
-                    SwingUtilities.invokeLater(new Runnable() {
-                        @Override
-                        public void run() {
-                            appendLog("ERROR reimprimiendo " + numeroFactura + ": " + e.getMessage());
-                            JOptionPane.showMessageDialog(MainWindow.this,
-                                    "Error reimprimiendo: " + e.getMessage(),
-                                    "Error", JOptionPane.ERROR_MESSAGE);
-                        }
-                    });
-                }
-            }
-        }, "Reprint-Thread").start();
-    }
-
     // ============================================================
     // Listener del FileWatcher
     // ============================================================
@@ -910,31 +331,6 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
                 appendLog("Factura " + factura.getNumeroCompleto()
                         + " | Cliente: " + factura.getCliente()
                         + " | Items: " + factura.getItems().size());
-            }
-        });
-    }
-
-    @Override
-    public void onImpresionEnviada(PrintJob job) {
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                colaTableModel.insertRow(0, new Object[]{
-                        sdf.format(job.getFechaProcesado() != null ? job.getFechaProcesado() : job.getFechaCreacion()),
-                        job.getNumeroFactura(),
-                        job.getArchivoOrigen(),
-                        job.getImpresora().getNombre(),
-                        job.getEstado().name(),
-                        job.getMensajeError() != null ? job.getMensajeError() : ""
-                });
-
-                String icon = job.getEstado() == PrintJob.Estado.IMPRESO ? "OK" : "ERROR";
-                appendLog("  [" + icon + "] " + job.getImpresora().getNombre()
-                        + (job.getMensajeError() != null ? " - " + job.getMensajeError() : ""));
-
-                while (colaTableModel.getRowCount() > 200) {
-                    colaTableModel.removeRow(colaTableModel.getRowCount() - 1);
-                }
             }
         });
     }

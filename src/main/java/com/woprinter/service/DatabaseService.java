@@ -2,7 +2,6 @@ package com.woprinter.service;
 
 import com.woprinter.config.AppConfig;
 import com.woprinter.model.ConfiguracionEmpresa;
-import com.woprinter.model.Impresora;
 import com.woprinter.model.NovedadRegistro;
 
 import java.sql.*;
@@ -66,130 +65,6 @@ public class DatabaseService {
             System.err.println("[DB] Error obteniendo configuracion empresa: " + e.getMessage());
         }
         return ce;
-    }
-
-    // ============================================================
-    // Impresoras
-    // ============================================================
-
-    private static final String SQL_SELECT_IMPRESORAS =
-            "SELECT i.id, i.nombre, i.nombre_windows, i.activa, "
-          + "       i.tipo_bodega, i.tipo_venta, i.tipo_notificaciones, "
-          + "       i.id_bodega, b.nombre AS nombre_bodega "
-          + "FROM impresoras i LEFT JOIN bodegas b ON b.id = i.id_bodega ";
-
-    public List<Impresora> getImpresorasActivas() {
-        return queryImpresoras(SQL_SELECT_IMPRESORAS + "WHERE i.activa = TRUE ORDER BY i.id");
-    }
-
-    public List<Impresora> getAllImpresoras() {
-        return queryImpresoras(SQL_SELECT_IMPRESORAS + "ORDER BY i.id");
-    }
-
-    private List<Impresora> queryImpresoras(String sql) {
-        List<Impresora> lista = new ArrayList<Impresora>();
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                int idBod = rs.getInt("id_bodega");
-                Integer idBodega = rs.wasNull() ? null : idBod;
-                lista.add(new Impresora(
-                        rs.getInt("id"),
-                        rs.getString("nombre"),
-                        rs.getString("nombre_windows"),
-                        rs.getBoolean("activa"),
-                        rs.getBoolean("tipo_bodega"),
-                        rs.getBoolean("tipo_venta"),
-                        rs.getBoolean("tipo_notificaciones"),
-                        idBodega,
-                        rs.getString("nombre_bodega")
-                ));
-            }
-        } catch (SQLException e) {
-            System.err.println("[DB] Error obteniendo impresoras: " + e.getMessage());
-        }
-        return lista;
-    }
-
-    public void registrarImpresion(String numeroFactura, Integer impresoraId,
-                                    String archivoOrigen, String estado, String mensajeError,
-                                    String concepto) {
-        String sql = "INSERT INTO log_impresiones (numero_factura, impresora_id, archivo_origen, estado, mensaje_error, concepto) "
-                   + "VALUES (?, ?, ?, ?, ?, ?)";
-
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, numeroFactura);
-            if (impresoraId != null && impresoraId > 0) {
-                ps.setInt(2, impresoraId);
-            } else {
-                ps.setNull(2, Types.INTEGER);
-            }
-            ps.setString(3, archivoOrigen);
-            ps.setString(4, estado);
-            ps.setString(5, mensajeError);
-            ps.setString(6, concepto);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            System.err.println("[DB] Error registrando impresion: " + e.getMessage());
-        }
-    }
-
-    public boolean agregarImpresora(String nombre, String nombreWindows,
-                                     boolean tipoVenta, boolean tipoNotificaciones, Integer idBodega) {
-        String sql = "INSERT INTO impresoras (nombre, nombre_windows, tipo_bodega, tipo_venta, "
-                   + "tipo_notificaciones, id_bodega) VALUES (?, ?, ?, ?, ?, ?)";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, nombre);
-            ps.setString(2, nombreWindows);
-            ps.setBoolean(3, idBodega != null);                 // tipo_bodega derivado: true si hay id_bodega
-            ps.setBoolean(4, tipoVenta);
-            ps.setBoolean(5, tipoNotificaciones);
-            if (idBodega != null) ps.setInt(6, idBodega);
-            else ps.setNull(6, Types.INTEGER);
-            ps.executeUpdate();
-            return true;
-        } catch (SQLException e) {
-            System.err.println("[DB] Error agregando impresora: " + e.getMessage());
-            return false;
-        }
-    }
-
-    public boolean actualizarImpresora(int id, String nombre, String nombreWindows, boolean activa,
-                                        boolean tipoVenta, boolean tipoNotificaciones, Integer idBodega) {
-        String sql = "UPDATE impresoras SET nombre = ?, nombre_windows = ?, activa = ?, "
-                   + "tipo_bodega = ?, tipo_venta = ?, tipo_notificaciones = ?, id_bodega = ? WHERE id = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, nombre);
-            ps.setString(2, nombreWindows);
-            ps.setBoolean(3, activa);
-            ps.setBoolean(4, idBodega != null);
-            ps.setBoolean(5, tipoVenta);
-            ps.setBoolean(6, tipoNotificaciones);
-            if (idBodega != null) ps.setInt(7, idBodega);
-            else ps.setNull(7, Types.INTEGER);
-            ps.setInt(8, id);
-            ps.executeUpdate();
-            return true;
-        } catch (SQLException e) {
-            System.err.println("[DB] Error actualizando impresora: " + e.getMessage());
-            return false;
-        }
-    }
-
-    public List<Object[]> getBodegas() {
-        List<Object[]> lista = new ArrayList<Object[]>();
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT id, nombre FROM bodegas ORDER BY id");
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) lista.add(new Object[]{rs.getInt(1), rs.getString(2)});
-        } catch (SQLException e) {
-            System.err.println("[DB] Error obteniendo bodegas: " + e.getMessage());
-        }
-        return lista;
     }
 
     // ============================================================
@@ -428,30 +303,6 @@ public class DatabaseService {
         return lista;
     }
 
-    public boolean eliminarImpresora(int id) {
-        try (Connection conn = getConnection()) {
-            conn.setAutoCommit(false);
-
-            // Primero eliminar registros del log asociados
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM log_impresiones WHERE impresora_id = ?")) {
-                ps.setInt(1, id);
-                ps.executeUpdate();
-            }
-
-            // Luego eliminar la impresora
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM impresoras WHERE id = ?")) {
-                ps.setInt(1, id);
-                ps.executeUpdate();
-            }
-
-            conn.commit();
-            return true;
-        } catch (SQLException e) {
-            System.err.println("[DB] Error eliminando impresora: " + e.getMessage());
-            return false;
-        }
-    }
-
     // ============================================================
     // Facturas Impresas
     // ============================================================
@@ -575,71 +426,6 @@ public class DatabaseService {
             System.err.println("[DB] Error obteniendo facturas de hoy: " + e.getMessage());
         }
         return resultados;
-    }
-
-    /**
-     * Reconstruye un objeto Factura completo desde la BD para reimprimir.
-     */
-    public com.woprinter.model.Factura reconstruirFactura(String numeroFactura) {
-        com.woprinter.model.Factura factura = new com.woprinter.model.Factura();
-
-        // Cabecera
-        String sqlCab = "SELECT numero_factura, cliente, fecha_factura, vendedor, concepto, forma_pago, prefijo, empresa "
-                      + "FROM facturas_impresas WHERE numero_factura = ?";
-
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sqlCab)) {
-            ps.setString(1, numeroFactura);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                factura.setPrefijo(rs.getString("prefijo") != null ? rs.getString("prefijo") : "");
-                factura.setCliente(rs.getString("cliente"));
-                factura.setFecha(rs.getDate("fecha_factura"));
-                factura.setVendedor(rs.getString("vendedor") != null ? rs.getString("vendedor") : "");
-                factura.setConcepto(rs.getString("concepto") != null ? rs.getString("concepto") : "");
-                factura.setFormaPago(rs.getString("forma_pago") != null ? rs.getString("forma_pago") : "");
-                factura.setEmpresa(rs.getString("empresa") != null ? rs.getString("empresa") : "");
-
-                // Extraer numero del numero_factura (ej: "FVE-35446" -> 35446)
-                String numStr = numeroFactura;
-                int guion = numStr.lastIndexOf('-');
-                if (guion >= 0 && guion < numStr.length() - 1) {
-                    try {
-                        factura.setNumero(Integer.parseInt(numStr.substring(guion + 1)));
-                    } catch (NumberFormatException e) {
-                        factura.setNumero(0);
-                    }
-                }
-            }
-            rs.close();
-        } catch (SQLException e) {
-            System.err.println("[DB] Error reconstruyendo cabecera: " + e.getMessage());
-            return null;
-        }
-
-        // Detalle
-        String sqlDet = "SELECT d.codigo_producto, d.descripcion, d.cantidad "
-                      + "FROM detalle_factura d "
-                      + "JOIN facturas_impresas f ON d.factura_id = f.id "
-                      + "WHERE f.numero_factura = ? ORDER BY d.id";
-
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sqlDet)) {
-            ps.setString(1, numeroFactura);
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                com.woprinter.model.ItemFactura item = new com.woprinter.model.ItemFactura();
-                item.setCodigo(rs.getString("codigo_producto"));
-                item.setDescripcion(rs.getString("descripcion"));
-                item.setCantidad(rs.getDouble("cantidad"));
-                factura.addItem(item);
-            }
-            rs.close();
-        } catch (SQLException e) {
-            System.err.println("[DB] Error reconstruyendo detalle: " + e.getMessage());
-        }
-
-        return factura;
     }
 
     public List<String[]> buscarFacturas(String numeroBusqueda) {
