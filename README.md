@@ -1,12 +1,12 @@
 # WorldOffice Printer (`wo-printer`)
 
 Aplicación de escritorio en **Java 8 (Swing + FlatLaf)** que **vigila una carpeta** donde
-**WorldOffice** exporta facturas en formato Excel (`.xlsx`), las procesa contra una base de
-datos **PostgreSQL** y genera órdenes de despacho **por bodega** con sus registros e
-inventario.
+**WorldOffice** exporta facturas en formato Excel (`.xlsx`) **o HTML** (`.html`), las
+procesa contra una base de datos **PostgreSQL** y genera órdenes de despacho **por bodega**
+con sus registros e inventario.
 
 El objetivo es automatizar el flujo de mostrador/bodega: cada vez que se factura en
-WorldOffice y se exporta el Excel a una carpeta, la aplicación lo detecta, clasifica sus
+WorldOffice y se exporta la factura a una carpeta, la aplicación la detecta, clasifica sus
 ítems, **genera la(s) orden(es) de salida por bodega**, actualiza el stock pendiente y deja
 registradas las **novedades** cuando algún producto no se reconoce.
 
@@ -24,6 +24,7 @@ registradas las **novedades** cuando algún producto no se reconoce.
 - [Estructura de archivos](#estructura-de-archivos)
 - [Modelo de datos (PostgreSQL)](#modelo-de-datos-postgresql)
 - [Formato del Excel de WorldOffice](#formato-del-excel-de-worldoffice)
+- [Formato HTML de WorldOffice](#formato-html-de-worldoffice)
 - [Requisitos previos](#requisitos-previos)
 - [Configuración (`config.properties`)](#configuración-configproperties)
 - [Compilación y ejecución](#compilación-y-ejecución)
@@ -36,9 +37,12 @@ registradas las **novedades** cuando algún producto no se reconoce.
 
 ## ¿Qué hace?
 
-1. **Vigila una carpeta** (`watch.folder`) por archivos `.xlsx` nuevos o modificados,
-   esperando a que el archivo esté **estable** (que WorldOffice termine de escribirlo).
-2. **Parsea el Excel** con Apache POI, leyendo solo las columnas **A–W** (cabecera + ítems).
+1. **Vigila una carpeta** (`watch.folder`) por archivos `.xlsx` o `.html` nuevos o
+   modificados, esperando a que el archivo esté **estable** (que WorldOffice termine de
+   escribirlo). Si la factura HTML es multipágina, además espera a que estén **todas las
+   páginas** (hasta 30 s) antes de procesarla.
+2. **Parsea la factura**: el Excel con Apache POI (solo columnas **A–W**) o el HTML con
+   jsoup (que además trae el **NIT del cliente** y los **precios/IVA** por ítem).
 3. **Orquesta una transacción** contra PostgreSQL:
    - Verifica **idempotencia** (no reprocesa una factura ya registrada).
    - **Clasifica** los ítems en **válidos** (el producto existe en BD) y **novedades**
@@ -56,15 +60,16 @@ registradas las **novedades** cuando algún producto no se reconoce.
 ## Arquitectura y flujo
 
 ```
- WorldOffice ──exporta .xlsx──►  C:\ImpresionesWorldOffice  (watch.folder)
+ WorldOffice ──exporta .xlsx / .html──►  C:\ImpresionesWorldOffice  (watch.folder)
                                           │
                                           ▼
                             ┌──────────────────────────┐
                             │  FileWatcherService       │  polling cada 2s, espera estabilidad
-                            └─────────────┬────────────┘
+                            └─────────────┬────────────┘  (y todas las páginas si es HTML)
                                           ▼
                             ┌──────────────────────────┐
-                            │  ExcelParserService       │  POI, lee columnas A–W → Factura
+                            │  ExcelParserService       │  POI, columnas A–W → Factura
+                            │  HtmlFacturaParserService │  jsoup, multipágina → Factura
                             └─────────────┬────────────┘
                                           ▼
                             ┌──────────────────────────┐     ┌──────────────────────────┐
@@ -87,6 +92,7 @@ Servicios principales (paquete `com.woprinter.service`):
 |------------------------------|---------------------------------------------------------------------------------|
 | `FileWatcherService`         | Vigila la carpeta por polling, detecta archivos estables, orquesta el flujo.     |
 | `ExcelParserService`         | Parsea el `.xlsx` de WorldOffice (columnas A–W) → objeto `Factura`.             |
+| `HtmlFacturaParserService`   | Parsea el `.html` de WorldOffice (con páginas múltiples) → objeto `Factura`.    |
 | `OrdenGeneratorService`      | Orquestador transaccional: idempotencia, clasificación, órdenes, novedades.      |
 | `ProductoLookupService`      | Busca cada producto por código en la BD.                                         |
 | `BodegaAsignacionService`    | Determina la bodega de cada ítem/orden.                                          |
@@ -148,8 +154,8 @@ Base de datos por defecto: `bodega_nuevo`. Hay **dos grupos** de tablas:
 
 | Tabla                 | Propósito                                                                       |
 |-----------------------|---------------------------------------------------------------------------------|
-| `facturas_impresas`   | Control de **idempotencia** (`numero_factura` único) + cabecera de lo procesado.|
-| `detalle_factura`     | Ítems de cada factura procesada, con `es_novedad` y `motivo_novedad`.           |
+| `facturas_impresas`   | Control de **idempotencia** (`numero_factura` único) + cabecera de lo procesado (incluye `nit_cliente` si la fuente fue HTML).|
+| `detalle_factura`     | Ítems de cada factura procesada, con `es_novedad` y `motivo_novedad` (y precios/IVA si la fuente fue HTML).|
 | `novedades_facturas`  | Espejo operacional de novedades (flujo PENDIENTE→REVISADO→RESUELTO/IGNORADO).    |
 
 **Tablas legadas del sistema `bodega_nuevo`** — deben existir **previamente**; `wo-printer`
@@ -202,6 +208,37 @@ distintos escenarios (una/varias bodegas, con novedades, sin productos válidos)
 
 ---
 
+## Formato HTML de WorldOffice
+
+`HtmlFacturaParserService` lee la factura exportada como HTML (charset `windows-1252`).
+A diferencia del Excel, el HTML **sí trae** el **NIT del cliente** (se guarda en
+`facturas_impresas.nit_cliente`) y los **precios por ítem**: valor unitario, % IVA,
+valor IVA y total de línea (se guardan en `detalle_factura`, que con fuente Excel quedan
+en 0). El HTML no trae bodega por ítem, pero ese dato del Excel es solo informativo: la
+asignación real de bodegas la decide `BodegaAsignacionService` según el stock.
+
+Los campos se ubican por sus **etiquetas** (`CLIENTE`, `NIT`, `FECHA FACTURA`, `Item`,
+etc.), no por posición, y los ítems son las filas de 9 celdas de la tabla de productos.
+
+**Multipágina:** una factura extensa genera varios archivos: `83977.html` (página 1) más
+`83977Página2.html` … `83977PáginaN.html`. Cada página termina con enlaces de navegación
+(`Primero / Anterior / Siguiente / Último`) y repite el número de factura y el
+`Total líneas o ítems: N`. El flujo es:
+
+1. Las páginas secundarias (`*PáginaK.html`) **no** se procesan por sí solas.
+2. Al detectar el archivo base, el parser sigue la cadena de enlaces `Siguiente` y combina
+   los ítems de todas las páginas.
+3. Si falta alguna página en disco, el watcher **reintenta cada ciclo** hasta **30 s**
+   (`HTML_PAGINAS_TIMEOUT_MS`); si siguen faltando, el conjunto se mueve a `errores/`.
+4. Antes de procesar se valida que el número de ítems leídos coincida con el
+   `Total líneas o ítems` declarado; si no coincide, la factura se rechaza (a `errores/`).
+5. Al terminar (bien o mal), se mueven el archivo base **y todas sus páginas**.
+
+> La idempotencia es la misma del Excel (`prefijo-numero`, ej. `FVE-84026`): si una factura
+> ya se procesó desde Excel, su HTML se reconoce como duplicada, y viceversa.
+
+---
+
 ## Requisitos previos
 
 - **JDK 8** (el proyecto compila con `source/target 1.8`).
@@ -225,7 +262,7 @@ db.url=jdbc:postgresql://localhost:5432/bodega_nuevo
 db.user=postgres
 db.password=TU_PASSWORD
 
-# Carpeta a vigilar (donde WorldOffice exporta los Excel)
+# Carpeta a vigilar (donde WorldOffice exporta las facturas .xlsx / .html)
 watch.folder=C:\\ImpresionesWorldOffice
 watch.folder.procesados=C:\\ImpresionesWorldOffice\\procesados
 watch.folder.errores=C:\\ImpresionesWorldOffice\\errores
@@ -290,13 +327,17 @@ En **NetBeans** basta con abrir el proyecto y usar **Run** (clase principal:
 2. **Vigilancia** — `FileWatcherService` corre en un hilo demonio y hace **polling** cada
    2 s. Registra los archivos existentes al inicio (para no reprocesarlos) y considera un
    archivo **listo** cuando:
-   - termina en `.xlsx` y no empieza por `~$` (temporales de Excel), y
+   - termina en `.xlsx` o `.html` y no empieza por `~$` (temporales de Excel), y
    - su **tamaño no cambió** entre dos lecturas consecutivas (ya terminó de escribirse).
+
+   Las páginas secundarias de un HTML multipágina (`*PáginaK.html`) no se procesan solas:
+   se procesan y se mueven junto con su archivo base.
 
    Un segundo hilo reintenta cada 10 s **mover** los archivos que quedaron bloqueados.
 
-3. **Parseo** — `ExcelParserService.parsear(...)` construye un objeto `Factura` con la
-   cabecera y la lista de `ItemFactura` (columnas A–W).
+3. **Parseo** — `ExcelParserService.parsear(...)` (columnas A–W) o
+   `HtmlFacturaParserService.parsear(...)` (todas las páginas del HTML) construyen un
+   objeto `Factura` con la cabecera y la lista de `ItemFactura`.
 
 4. **Orquestación transaccional** — `OrdenGeneratorService.procesar(factura)`:
    1. **Idempotencia**: si `numero_factura` ya está en `facturas_impresas`, se marca como
@@ -318,8 +359,9 @@ En **NetBeans** basta con abrir el proyecto y usar **Run** (clase principal:
 
 | Síntoma                                             | Causa probable / solución                                                       |
 |----------------------------------------------------|---------------------------------------------------------------------------------|
-| No detecta los Excel                                | Revisa `watch.folder`; el archivo debe terminar en `.xlsx` y no empezar por `~$`. |
+| No detecta las facturas                             | Revisa `watch.folder`; el archivo debe terminar en `.xlsx` o `.html` y no empezar por `~$`. |
 | El archivo "se queda" sin procesar                 | Aún está siendo escrito (tamaño cambiante) o vacío; espera a que se estabilice.  |
+| HTML multipágina termina en `errores/`             | Faltaron páginas tras 30 s de espera o el conteo de ítems no coincide con el `Total líneas o ítems` declarado. |
 | `Error cargando configuracion`                     | Falta/está mal `config.properties`; revisa rutas y formato.                      |
 | No conecta a la base de datos                      | Verifica `db.url`, `db.user`, `db.password` y que PostgreSQL esté arriba.        |
 | `Factura ... ya estaba en BD`                      | Idempotencia: esa factura ya fue procesada (está en `facturas_impresas`).        |
@@ -335,6 +377,7 @@ Definidas en [`pom.xml`](pom.xml):
 |------------------------------|----------|----------------------------------------------|
 | `org.apache.poi:poi`         | 4.1.2    | Lectura de Excel.                            |
 | `org.apache.poi:poi-ooxml`   | 4.1.2    | Lectura de `.xlsx` (XSSF).                   |
+| `org.jsoup:jsoup`            | 1.17.2   | Lectura de facturas `.html`.                 |
 | `org.postgresql:postgresql`  | 42.2.28  | Driver JDBC de PostgreSQL.                   |
 | `com.formdev:flatlaf`        | 3.5.4    | Look & Feel moderno para Swing.             |
 | `com.formdev:flatlaf-extras` | 3.5.4    | Extras de FlatLaf.                          |

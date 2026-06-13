@@ -24,15 +24,15 @@ CREATE TABLE IF NOT EXISTS facturas_impresas (
     concepto        VARCHAR(500),
     forma_pago      VARCHAR(50),
     prefijo         VARCHAR(20),
-    empresa         VARCHAR(200)
+    empresa         VARCHAR(200),
+    nit_cliente     VARCHAR(50)   -- solo lo trae la factura HTML; NULL si la fuente fue Excel
 );
 
 -- ------------------------------------------------------------
 -- Detalle de items por factura procesada.
--- Las columnas iva / precio_unitario / total_linea se conservan por
--- compatibilidad con el esquema legado pero wo-printer escribe 0:
--- desde la version actual el aplicativo solo lee A..W del Excel y no
--- maneja precios.
+-- Las columnas iva / precio_unitario / total_linea quedan en 0 cuando
+-- la fuente es Excel (solo se leen las columnas A..W, sin precios) y
+-- con los valores reales cuando la fuente es una factura HTML.
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS detalle_factura (
     id              SERIAL PRIMARY KEY,

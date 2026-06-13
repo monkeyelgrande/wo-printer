@@ -17,7 +17,14 @@
       "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" status)",
       "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" log --oneline -3)",
       "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" checkout HEAD -- sql/schema.sql src/main/java/com/woprinter/config/AppConfig.java src/main/java/com/woprinter/service/OrdenGeneratorService.java src/main/java/com/woprinter/ui/MainWindow.java src/main/resources/config.properties)",
-      "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" diff HEAD --stat)"
+      "Bash(git -C \"I:/Documents/NetBeansProjects/wo-printer\" diff HEAD --stat)",
+      "PowerShell($b = [System.IO.File]::ReadAllBytes\\(\"D:\\\\Datos\\\\Downloads\\\\testtt\\\\Documentos_Disenio_Inventario-Usuario.snp\"\\); \\($b[0..63] | ForEach-Object { '{0:X2}' -f $_ }\\) -join ' '; -join \\($b[0..63] | ForEach-Object { if \\($_ -ge 32 -and $_ -le 126\\) { [char]$_ } else { '.' } }\\))",
+      "PowerShell(python -c \"import pypdf; r = pypdf.PdfReader\\(r'D:\\\\Datos\\\\Downloads\\\\testtt\\\\Documentos_Disenio_Inventario-Usuario.pdf'\\); print\\('pages:', len\\(r.pages\\)\\); t = r.pages[0].extract_text\\(\\); print\\(repr\\(t[:1500]\\)\\)\")",
+      "PowerShell(pip install pypdf --quiet --disable-pip-version-warning)",
+      "PowerShell(python -c \"import pypdf; r = pypdf.PdfReader\\(r'D:\\\\Datos\\\\Downloads\\\\testtt\\\\Documentos_Disenio_Inventario-Usuario.pdf'\\); print\\('pages:', len\\(r.pages\\)\\); t = r.pages[0].extract_text\\(\\); print\\(t[:2000]\\)\")",
+      "PowerShell(pip install pypdf --quiet)",
+      "PowerShell(\"==== PAGINA 8 tail ====\")",
+      "PowerShell(\"==== PAGINA 3 nav ====\")"
     ]
   }
 }

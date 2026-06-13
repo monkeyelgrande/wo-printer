@@ -167,6 +167,9 @@ public class OrdenGeneratorService {
                 agrupados.put(key, copia);
             } else {
                 existente.setCantidad(existente.getCantidad() + item.getCantidad());
+                // Acumular tambien los valores de linea (el unitario y el % no cambian)
+                existente.setValorIva(existente.getValorIva() + item.getValorIva());
+                existente.setTotalLinea(existente.getTotalLinea() + item.getTotalLinea());
             }
         }
         return new ArrayList<ItemFactura>(agrupados.values());
@@ -179,6 +182,10 @@ public class OrdenGeneratorService {
         c.setBodega(src.getBodega());
         c.setMedida(src.getMedida());
         c.setCantidad(src.getCantidad());
+        c.setValorUnitario(src.getValorUnitario());
+        c.setPorcentajeIva(src.getPorcentajeIva());
+        c.setValorIva(src.getValorIva());
+        c.setTotalLinea(src.getTotalLinea());
         return c;
     }
 
@@ -406,8 +413,8 @@ public class OrdenGeneratorService {
     private int guardarFacturaImpresa(Connection conn, Factura factura, List<ItemFactura> itemsConsolidados,
                                       List<Novedad> novedades) throws SQLException {
         String sqlCab = "INSERT INTO facturas_impresas "
-                      + "(numero_factura, cliente, fecha_factura, vendedor, concepto, forma_pago, prefijo, empresa) "
-                      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id";
+                      + "(numero_factura, cliente, fecha_factura, vendedor, concepto, forma_pago, prefijo, empresa, nit_cliente) "
+                      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id";
 
         int facturaId;
         try (PreparedStatement ps = conn.prepareStatement(sqlCab)) {
@@ -423,6 +430,7 @@ public class OrdenGeneratorService {
             ps.setString(6, factura.getFormaPago());
             ps.setString(7, factura.getPrefijo());
             ps.setString(8, factura.getEmpresa());
+            ps.setString(9, factura.getNitCliente()); // solo lo trae el HTML; null para Excel
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) throw new SQLException("No se obtuvo id de facturas_impresas");
                 facturaId = rs.getInt(1);
@@ -449,11 +457,11 @@ public class OrdenGeneratorService {
                 ps.setString(2, item.getCodigo());
                 ps.setString(3, item.getDescripcion());
                 ps.setDouble(4, item.getCantidad());
-                // wo-printer ya no consume las columnas X+ del Excel; iva/precio/total
-                // quedan en 0 para preservar el contrato NOT NULL de la tabla legada.
-                ps.setDouble(5, 0.0);
-                ps.setDouble(6, 0.0);
-                ps.setDouble(7, 0.0);
+                // El Excel (columnas A..W) no trae precios y deja estos campos en 0;
+                // las facturas HTML si los traen y se guardan los valores reales.
+                ps.setDouble(5, item.getPorcentajeIva());
+                ps.setDouble(6, item.getValorUnitario());
+                ps.setDouble(7, item.getTotalLinea());
                 ps.setBoolean(8, nov != null);
                 ps.setString(9, nov != null ? (nov.getTipo().name() + ": " + nov.getMotivo()) : null);
                 ps.addBatch();

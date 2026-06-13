@@ -328,8 +328,10 @@ public class MainWindow extends JFrame implements FileWatcherService.WatcherList
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {
+                String nit = factura.getNitCliente();
                 appendLog("Factura " + factura.getNumeroCompleto()
                         + " | Cliente: " + factura.getCliente()
+                        + (nit != null && !nit.trim().isEmpty() ? " | NIT: " + nit : "")
                         + " | Items: " + factura.getItems().size());
             }
         });

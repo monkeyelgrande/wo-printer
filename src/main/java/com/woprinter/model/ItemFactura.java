@@ -8,6 +8,13 @@ public class ItemFactura {
     private String medida;          // Unidad, Metros, Kilogramo
     private double cantidad;
 
+    // Solo disponibles cuando la fuente es HTML; el Excel (columnas A..W)
+    // no trae precios y estos campos quedan en 0.
+    private double valorUnitario;
+    private double porcentajeIva;
+    private double valorIva;
+    private double totalLinea;
+
     public ItemFactura() {}
 
     // --- Getters y Setters ---
@@ -26,6 +33,18 @@ public class ItemFactura {
 
     public double getCantidad() { return cantidad; }
     public void setCantidad(double cantidad) { this.cantidad = cantidad; }
+
+    public double getValorUnitario() { return valorUnitario; }
+    public void setValorUnitario(double valorUnitario) { this.valorUnitario = valorUnitario; }
+
+    public double getPorcentajeIva() { return porcentajeIva; }
+    public void setPorcentajeIva(double porcentajeIva) { this.porcentajeIva = porcentajeIva; }
+
+    public double getValorIva() { return valorIva; }
+    public void setValorIva(double valorIva) { this.valorIva = valorIva; }
+
+    public double getTotalLinea() { return totalLinea; }
+    public void setTotalLinea(double totalLinea) { this.totalLinea = totalLinea; }
 
     @Override
     public String toString() {

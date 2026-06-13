@@ -22,6 +22,7 @@ public class FileWatcherService implements Runnable {
 
     private final AppConfig config;
     private final ExcelParserService parser;
+    private final HtmlFacturaParserService htmlParser;
     private final OrdenGeneratorService ordenGen;
 
     private volatile boolean running;
@@ -35,17 +36,26 @@ public class FileWatcherService implements Runnable {
     // Registro de archivos ya vistos con su tamanio para detectar nuevos o modificados
     private final Map<String, Long> archivosConocidos;
 
+    // Facturas HTML multipagina que estan esperando a que WorldOffice termine
+    // de escribir todas sus paginas (path del archivo base -> primer intento)
+    private final Map<String, Long> htmlEsperandoPaginas;
+
     // Intervalo de polling en milisegundos
     private static final long POLL_INTERVAL = 2000;
+
+    // Tiempo maximo de espera por las paginas faltantes de un HTML multipagina
+    private static final long HTML_PAGINAS_TIMEOUT_MS = 30000;
 
     public FileWatcherService() {
         this.config = AppConfig.getInstance();
         this.parser = new ExcelParserService();
+        this.htmlParser = new HtmlFacturaParserService();
         this.ordenGen = new OrdenGeneratorService();
         this.listeners = new ArrayList<WatcherListener>();
         this.facturasProcesadas = Collections.synchronizedSet(new HashSet<String>());
         this.pendientesMover = new CopyOnWriteArrayList<PendienteMover>();
         this.archivosConocidos = new HashMap<String, Long>();
+        this.htmlEsperandoPaginas = new HashMap<String, Long>();
     }
 
     public void addListener(WatcherListener listener) { listeners.add(listener); }
@@ -120,19 +130,28 @@ public class FileWatcherService implements Runnable {
 
         for (File archivo : archivos) {
             String name = archivo.getName();
-            if (archivo.isFile() && name.toLowerCase().endsWith(".xlsx") && !name.startsWith("~$")) {
+            if (archivo.isFile() && esExtensionSoportada(name) && !name.startsWith("~$")) {
                 archivosConocidos.put(archivo.getAbsolutePath(), archivo.length());
             }
         }
         System.out.println("[WATCHER] Archivos existentes registrados: " + archivosConocidos.size());
     }
 
+    private boolean esExtensionSoportada(String nombre) {
+        String lower = nombre.toLowerCase();
+        return lower.endsWith(".xlsx") || lower.endsWith(".html");
+    }
+
     /**
      * Escanea la carpeta buscando archivos nuevos o modificados.
      * Un archivo se considera listo cuando:
-     * 1. Es .xlsx y no empieza con ~$
+     * 1. Es .xlsx o .html y no empieza con ~$
      * 2. No estaba registrado O cambio de tamanio
      * 3. Su tamanio es estable (no cambio entre dos lecturas = ya termino de escribirse)
+     *
+     * Las paginas secundarias de un HTML multipagina ("NNNNNPáginaK.html") no
+     * disparan procesamiento propio: se procesan y se mueven junto con su
+     * archivo base ("NNNNN.html").
      */
     private void escanearCarpeta(File watchDir) {
         File[] archivos = watchDir.listFiles();
@@ -141,9 +160,9 @@ public class FileWatcherService implements Runnable {
         for (File archivo : archivos) {
             String name = archivo.getName();
 
-            // Ignorar no-xlsx y archivos temporales de Excel
+            // Ignorar extensiones no soportadas y archivos temporales de Excel
             if (!archivo.isFile()) continue;
-            if (!name.toLowerCase().endsWith(".xlsx")) continue;
+            if (!esExtensionSoportada(name)) continue;
             if (name.startsWith("~$")) continue;
 
             String path = archivo.getAbsolutePath();
@@ -171,6 +190,11 @@ public class FileWatcherService implements Runnable {
 
             } else {
                 // El tamanio es igual al anterior = archivo estable, listo para procesar
+                if (HtmlFacturaParserService.esPaginaSecundaria(name)) {
+                    // Se procesara junto con su archivo base
+                    archivosConocidos.put(path, -1L);
+                    continue;
+                }
                 System.out.println("[WATCHER] Archivo estable, procesando: " + name);
                 archivosConocidos.put(path, -1L); // Marcar como procesado
                 procesarArchivo(archivo);
@@ -188,32 +212,42 @@ public class FileWatcherService implements Runnable {
     }
 
     /**
-     * Procesa un archivo Excel:
-     *   1. Parsea el Excel de WorldOffice
+     * Procesa un archivo de factura (.xlsx o .html):
+     *   1. Parsea el archivo de WorldOffice con el parser segun su extensión
      *   2. Orquestador OrdenGeneratorService:
      *      - Idempotencia (facturas_impresas)
      *      - Clasificación de ítems + novedades
      *      - INSERT facturas_cabeceras/detalles + UPDATE pendientes + movimientos (AUTOMATICO)
      *      - Registro en facturas_impresas / detalle_factura / novedades_facturas
      *      - Todo transaccional
-     *   3. Mueve el archivo a procesados o errores
+     *   3. Mueve el archivo (y sus páginas, si es HTML multipágina) a procesados o errores
+     *
+     * Si el HTML es multipágina y aún faltan páginas en disco, se reintenta en
+     * cada ciclo de polling hasta HTML_PAGINAS_TIMEOUT_MS antes de declararlo error.
      *
      * La aplicación ya NO imprime tirillas: el sistema aliado (control bodega)
      * notifica las órdenes generadas por su cuenta.
      */
     private void procesarArchivo(File archivo) {
         String nombreArchivo = archivo.getName();
-        System.out.println("[WATCHER] Archivo detectado: " + nombreArchivo);
-        notifyArchivoDetectado(nombreArchivo);
+        String path = archivo.getAbsolutePath();
+        boolean esHtml = nombreArchivo.toLowerCase().endsWith(".html");
+
+        // No repetir la notificación en cada reintento de un HTML que espera páginas
+        if (!htmlEsperandoPaginas.containsKey(path)) {
+            System.out.println("[WATCHER] Archivo detectado: " + nombreArchivo);
+            notifyArchivoDetectado(nombreArchivo);
+        }
 
         try {
-            Factura factura = parser.parsear(archivo);
+            Factura factura = esHtml ? htmlParser.parsear(archivo) : parser.parsear(archivo);
+            htmlEsperandoPaginas.remove(path);
             String claveFactura = factura.getNumeroCompleto();
 
             // Anti-duplicado en memoria (complementa al check persistente del orquestador)
             if (facturasProcesadas.contains(claveFactura)) {
                 notifyInfo("Factura " + claveFactura + " ya procesada en esta sesión, ignorando");
-                moverODejarPendiente(archivo, config.getProcessedFolder());
+                moverConjuntoODejarPendiente(archivo, config.getProcessedFolder());
                 return;
             }
             facturasProcesadas.add(claveFactura);
@@ -227,31 +261,76 @@ public class FileWatcherService implements Runnable {
 
             if (resultado.isDuplicada()) {
                 notifyInfo("Factura " + claveFactura + " ya estaba en BD; se omite");
-                moverODejarPendiente(archivo, config.getProcessedFolder());
+                moverConjuntoODejarPendiente(archivo, config.getProcessedFolder());
                 return;
             }
 
             if (resultado.getEstado() == ResultadoOrden.Estado.ERROR) {
                 notifyError(nombreArchivo, "Falla orquestador: " + resultado.getMensajeError());
-                moverODejarPendiente(archivo, config.getErrorFolder());
+                moverConjuntoODejarPendiente(archivo, config.getErrorFolder());
                 return;
             }
 
             notifyInfo("Factura " + claveFactura + " procesada: "
                     + resultado.getOrdenes().size() + " orden(es), "
                     + resultado.getNovedades().size() + " novedad(es)");
-            moverODejarPendiente(archivo, config.getProcessedFolder());
+            moverConjuntoODejarPendiente(archivo, config.getProcessedFolder());
+
+        } catch (HtmlFacturaParserService.PaginasIncompletasException e) {
+            manejarPaginasIncompletas(archivo, e);
 
         } catch (Exception e) {
+            htmlEsperandoPaginas.remove(path);
             System.err.println("[WATCHER] Error procesando " + nombreArchivo + ": " + e.getMessage());
             e.printStackTrace();
             notifyError(nombreArchivo, e.getMessage());
-            moverODejarPendiente(archivo, config.getErrorFolder());
+            moverConjuntoODejarPendiente(archivo, config.getErrorFolder());
+        }
+    }
+
+    /**
+     * Un HTML multipágina referencia páginas que aún no están en disco.
+     * Se reintenta en cada ciclo de polling; si tras HTML_PAGINAS_TIMEOUT_MS
+     * siguen faltando, el conjunto se mueve a errores.
+     */
+    private void manejarPaginasIncompletas(File archivo, HtmlFacturaParserService.PaginasIncompletasException e) {
+        String path = archivo.getAbsolutePath();
+        long ahora = System.currentTimeMillis();
+        Long primerIntento = htmlEsperandoPaginas.get(path);
+
+        if (primerIntento == null) {
+            primerIntento = ahora;
+            htmlEsperandoPaginas.put(path, ahora);
+            notifyInfo("Factura HTML multipágina, esperando páginas: " + e.getMessage());
+        }
+
+        if (ahora - primerIntento >= HTML_PAGINAS_TIMEOUT_MS) {
+            htmlEsperandoPaginas.remove(path);
+            System.err.println("[WATCHER] Páginas incompletas (timeout): " + archivo.getName());
+            notifyError(archivo.getName(), "Páginas incompletas tras "
+                    + (HTML_PAGINAS_TIMEOUT_MS / 1000) + "s de espera: " + e.getMessage());
+            moverConjuntoODejarPendiente(archivo, config.getErrorFolder());
+        } else {
+            // Re-armar el registro para que el próximo ciclo lo reintente
+            archivosConocidos.put(path, archivo.length());
         }
     }
 
     private void moverODejarPendiente(File archivo, String destFolder) {
         if (!moverArchivo(archivo, destFolder)) agregarPendienteMover(archivo, destFolder);
+    }
+
+    /**
+     * Mueve el archivo y, si es un HTML multipágina, también todas sus
+     * páginas secundarias presentes en disco.
+     */
+    private void moverConjuntoODejarPendiente(File archivo, String destFolder) {
+        if (archivo.getName().toLowerCase().endsWith(".html")) {
+            for (File pagina : HtmlFacturaParserService.buscarPaginasSecundarias(archivo)) {
+                moverODejarPendiente(pagina, destFolder);
+            }
+        }
+        moverODejarPendiente(archivo, destFolder);
     }
 
     // ================================================================

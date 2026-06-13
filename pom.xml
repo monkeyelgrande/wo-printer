@@ -32,6 +32,13 @@
             <version>4.1.2</version>
         </dependency>
 
+        <!-- jsoup para leer facturas exportadas como HTML por WorldOffice -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
+
         <!-- PostgreSQL JDBC -->
         <dependency>
             <groupId>org.postgresql</groupId>

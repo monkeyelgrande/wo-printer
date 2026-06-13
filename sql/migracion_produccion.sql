@@ -215,10 +215,33 @@ END$$;
 
 
 -- ============================================================================
+-- FASE 11 — NIT del cliente en facturas_impresas
+-- Fecha: 2026-06-12
+-- Descripción:
+--   Las facturas exportadas como HTML por WorldOffice traen el NIT del
+--   cliente (el Excel no lo trae). Se guarda en facturas_impresas; queda
+--   NULL para facturas cuya fuente fue Excel.
+-- ============================================================================
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name   = 'facturas_impresas'
+          AND column_name  = 'nit_cliente'
+    ) THEN
+        ALTER TABLE facturas_impresas
+            ADD COLUMN nit_cliente VARCHAR(50);
+    END IF;
+END$$;
+
+
+-- ============================================================================
 -- VERIFICACIÓN POST-APLICACIÓN
 -- ============================================================================
 -- Ejecutar este bloque manualmente después de la migración. Debe retornar
--- exactamente 10 filas con ok=TRUE. Si alguna sale FALSE, algo no se aplicó.
+-- exactamente 11 filas con ok=TRUE. Si alguna sale FALSE, algo no se aplicó.
 -- ============================================================================
 /*
 SELECT '1.3 idx_mov_prod_tipo_fecha' AS item,
@@ -240,7 +263,9 @@ UNION ALL SELECT '10 idx_novedades_factura',
 UNION ALL SELECT '10 idx_novedades_codigo',
        EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_novedades_codigo')
 UNION ALL SELECT '10 idx_novedades_fecha',
-       EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_novedades_fecha');
+       EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_novedades_fecha')
+UNION ALL SELECT '11 facturas_impresas.nit_cliente',
+       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='facturas_impresas' AND column_name='nit_cliente');
 */
 
 

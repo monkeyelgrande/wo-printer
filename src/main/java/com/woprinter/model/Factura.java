@@ -13,6 +13,7 @@ public class Factura {
     private String empresa;
     private String vendedor;
     private String cliente;
+    private String nitCliente;
     private String direccion;
     private String telefono;
     private String ciudad;
@@ -51,6 +52,9 @@ public class Factura {
 
     public String getCliente() { return cliente; }
     public void setCliente(String cliente) { this.cliente = cliente; }
+
+    public String getNitCliente() { return nitCliente; }
+    public void setNitCliente(String nitCliente) { this.nitCliente = nitCliente; }
 
     public String getDireccion() { return direccion; }
     public void setDireccion(String direccion) { this.direccion = direccion; }
