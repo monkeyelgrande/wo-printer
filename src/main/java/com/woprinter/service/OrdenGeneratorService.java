@@ -93,7 +93,11 @@ public class OrdenGeneratorService {
 
             if (generarOrdenes) {
                 // 4 & 5. Contacto y usuario
-                contacto = contactoSvc.resolver(conn, factura.getCliente(), factura.getConcepto());
+                // Las facturas HTML traen el NIT del cliente: se prioriza la
+                // resolución por NIT (cargar el contacto existente o crearlo).
+                // Las de Excel pasan nit=null y siguen el flujo nombre/concepto.
+                contacto = contactoSvc.resolver(conn, factura.getCliente(),
+                        factura.getConcepto(), factura.getNitCliente());
                 idUser = userSvc.resolverOCrear(conn);
 
                 // 6. Asignar bodegas y generar una orden (factura Salida) por cada bodega
